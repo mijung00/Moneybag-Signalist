@@ -1,40 +1,42 @@
 import sys
 import time
 import subprocess
-from datetime import datetime
+import os
 
-def run_process(cmd, cwd):
-    """프로세스를 백그라운드로 실행하는 함수"""
-    print(f"🚀 [Start Watchdog] {cmd} in {cwd}")
-    return subprocess.Popen(cmd, cwd=cwd, shell=False)
+def run_process(cmd):
+    """프로세스를 백그라운드로 실행하는 함수 (현재 위치에서 실행)"""
+    # 현재 watchdogs.py가 있는 폴더(루트)를 기준으로 잡음
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    print(f"🚀 [Start Watchdog] {cmd} in {base_dir}")
+    
+    # cwd 설정을 없애거나 base_dir로 설정해야 'iceage.src...'를 찾을 수 있음!
+    return subprocess.Popen(cmd, cwd=base_dir, shell=False)
 
 if __name__ == "__main__":
-    print("🦅 통합 왓치독 매니저 시작...")
+    print("🦅 통합 왓치독 매니저 시작 (Fixed Path Version)...")
     
-    # 1. 시그널리스트 왓치독 (stock_watchdog.py)
-    p1 = run_process(
-        [sys.executable, "-m", "iceage.src.pipelines.stock_watchdog"], 
-        cwd="iceage" # iceage 폴더 안에서 실행
-    )
+    # 1. 시그널리스트 왓치독
+    # cwd="iceage" 제거함! -> 루트에서 실행해야 iceage 패키지를 인식함
+    p1 = run_process([sys.executable, "-m", "iceage.src.pipelines.stock_watchdog"])
     
-    # 2. 머니백 왓치독 (market_watchdog.py)
-    p2 = run_process(
-        [sys.executable, "-m", "moneybag.src.pipelines.market_watchdog"], 
-        cwd="moneybag" # moneybag 폴더 안에서 실행
-    )
+    # 2. 머니백 왓치독
+    # cwd="moneybag" 제거함!
+    p2 = run_process([sys.executable, "-m", "moneybag.src.pipelines.market_watchdog"])
 
-    # 3. 무한 루프로 감시 (죽으면 다시 살리는 로직은 AWS가 담당하지만, 여기서도 일단 대기)
+    # 3. 무한 루프로 감시
     try:
         while True:
             time.sleep(60)
-            # 살아있는지 체크 (필요하면 여기서 죽은 놈 다시 살리는 로직 추가 가능)
+            
+            # 프로세스 죽었는지 체크
             if p1.poll() is not None:
-                print("⚠️ 시그널리스트 왓치독이 죽었습니다. 재시작합니다...")
-                p1 = run_process([sys.executable, "-m", "iceage.src.pipelines.stock_watchdog"], cwd="iceage")
+                print("⚠️ 시그널리스트 왓치독 사망. 심폐소생술 실시...")
+                p1 = run_process([sys.executable, "-m", "iceage.src.pipelines.stock_watchdog"])
                 
             if p2.poll() is not None:
-                print("⚠️ 머니백 왓치독이 죽었습니다. 재시작합니다...")
-                p2 = run_process([sys.executable, "-m", "moneybag.src.pipelines.market_watchdog"], cwd="moneybag")
+                print("⚠️ 머니백 왓치독 사망. 심폐소생술 실시...")
+                p2 = run_process([sys.executable, "-m", "moneybag.src.pipelines.market_watchdog"])
                 
     except KeyboardInterrupt:
         print("🛑 왓치독 종료 요청받음.")

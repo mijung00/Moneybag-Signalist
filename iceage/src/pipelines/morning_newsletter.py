@@ -39,6 +39,8 @@ from iceage.src.utils.trading_days import (
     compute_reference_date,
     may_run_today,
 )
+from common.s3_manager import S3Manager
+
 
 # LLM 캐시
 _LLM_BUNDLE_CACHE: dict[str, dict] = {}

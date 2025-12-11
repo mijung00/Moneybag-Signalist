@@ -7,6 +7,7 @@ pytz
 tzdata>=2024.1
 lxml
 schedule
+boto3>=1.28.0
 
 # [Finance & Crypto]
 yfinance>=0.2.40
@@ -15,13 +16,12 @@ ccxt>=4.0.0
 # [AI & LLM]
 openai>=1.0.0
 
-# [Media Generation: Image/Video/Audio]
+# [Media Generation]
 markdown
 pillow
 html2image
 gTTS
 edge-tts
-# moviepy는 호환성을 위해 2.0 미만 버전을 사용합니다.
 moviepy<2.0
 imageio-ffmpeg
 
@@ -29,4 +29,5 @@ imageio-ffmpeg
 sendgrid
 python-telegram-bot
 
+# [Web Server]
 Flask

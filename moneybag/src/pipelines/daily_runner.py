@@ -16,6 +16,13 @@ from moneybag.src.pipelines.generate_cardnews_assets import CardNewsFactory
 from moneybag.src.pipelines.send_email import EmailSender
 from moneybag.src.utils.slack_notifier import SlackNotifier
 
+# [추가] S3 매니저 가져오기
+try:
+    from common.s3_manager import S3Manager
+except ImportError:
+    print("⚠️ [Import Error] common.s3_manager를 찾을 수 없습니다. (로컬 테스트 중?)")
+    S3Manager = None
+
 def validate_markdown(text):
     """
     [검문소] 생성된 시크릿 노트가 정상인지 확인
@@ -112,6 +119,36 @@ def run_routine(mode="morning"):
         print(f"❌ [Error] 이메일 발송 실패: {e}")
         try: notifier.send_message(f"🚨 [Moneybag] {mode.upper()} 이메일 발송 실패!\n에러: {e}")
         except: pass
+
+    # ... (이메일 발송 코드 아래) ...
+
+    # ---------------------------------------------------------
+    # 4단계: S3 데이터 백업 (퇴근)
+    # ---------------------------------------------------------
+    if S3Manager:
+        try:
+            print("\n☁️ [S3 Sync] 머니백 데이터 및 결과물 전체 백업 중...")
+            s3 = S3Manager()
+            
+            # moneybag 폴더 위치 찾기 (BASE_DIR/moneybag)
+            moneybag_root = BASE_DIR / "moneybag"
+            
+            # 1. moneybag/data 폴더 (뉴스레터 MD, 로그 등 핵심 데이터)
+            data_dir = moneybag_root / "data"
+            if data_dir.exists():
+                # 로컬: moneybag/data -> S3: moneybag/data
+                s3.upload_directory(str(data_dir), "moneybag/data")
+            
+            # 2. moneybag/out 폴더 (혹시 이미지/영상이 여기 저장된다면)
+            out_dir = moneybag_root / "out"
+            if out_dir.exists():
+                s3.upload_directory(str(out_dir), "moneybag/out")
+                
+        except Exception as e:
+            print(f"⚠️ [S3 Error] 백업 중 오류 발생: {e}")
+
+    print(f"\n🏃 [Runner] {mode.upper()} 루틴 정상 종료!")
+
 
 if __name__ == "__main__":
     import sys

@@ -7,6 +7,7 @@ import pandas as pd  # 구독자 파일 읽기용
 from dotenv import load_dotenv
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, To
+import re
 
 # 프로젝트 루트 경로 (moneybag 폴더의 상위 폴더)
 # 이 파일 위치: project/moneybag/src/pipelines/send_email.py
@@ -71,23 +72,44 @@ class EmailSender:
                 new_lines.append("")
         return "\n".join(new_lines)
 
+
+
     def convert_md_to_html(self, md_text):
         safe_md = self.preprocess_markdown(md_text)
+        
+        # [수정 1] 리스트(- 또는 *)가 일반 텍스트 바로 뒤에 붙어있으면 
+        # 마크다운이 리스트로 인식을 못합니다. 강제로 줄바꿈 2번을 넣어줍니다.
+        # 예: "**제목**\n- 내용" -> "**제목**\n\n- 내용"
+        safe_md = re.sub(r'(?<!\n)\n\s*([-*] )', r'\n\n\1', safe_md)
+
         html_body = markdown.markdown(safe_md, extensions=['tables', 'nl2br'])
         
+        # [수정 2] CSS 스타일 강화 (ul, li 태그 디자인 추가)
         styled_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
             <style>
-                body {{ font-family: sans-serif; line-height: 1.6; color: #333; padding: 20px; }}
+                body {{ font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333; padding: 20px; }}
                 h1 {{ color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }}
-                h2 {{ color: #0056b3; margin-top: 30px; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: center; }}
-                th {{ background-color: #f2f2f2; }}
-                .footer {{ margin-top: 50px; font-size: 12px; color: #888; text-align: center; }}
+                h2 {{ color: #0056b3; margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
+                h3 {{ color: #2c3e50; margin-top: 25px; }}
+                
+                /* 테이블 스타일 */
+                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }}
+                th, td {{ border: 1px solid #ddd; padding: 10px; text-align: center; }}
+                th {{ background-color: #f8f9fa; color: #333; font-weight: bold; }}
+                tr:nth-child(even) {{ background-color: #fdfdfd; }}
+
+                /* [추가된 부분] 리스트 스타일 */
+                ul {{ margin: 10px 0 20px 20px; padding-left: 0; }}
+                li {{ margin-bottom: 5px; list-style-type: disc; }}
+
+                /* 인용문 스타일 */
+                blockquote {{ border-left: 4px solid #0056b3; margin: 15px 0; padding: 10px 15px; background-color: #f1f8ff; color: #555; }}
+
+                .footer {{ margin-top: 50px; font-size: 12px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 20px; }}
             </style>
         </head>
         <body>

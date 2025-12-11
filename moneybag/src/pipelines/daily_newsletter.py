@@ -15,6 +15,7 @@ from moneybag.src.llm.openai_driver import _chat
 from moneybag.src.tools.simple_backtester import SimpleBacktester
 from moneybag.src.analyzers.technical_levels import TechnicalLevelsAnalyzer
 from moneybag.src.collectors.onchain_collector import OnChainCollector
+from common.s3_manager import S3Manager
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env")
@@ -262,6 +263,13 @@ class DailyNewsletter:
         [🔥🔥 절대 준수 사항]
         1. **뉴스 포맷:** `### 1. [제목]` -> `> 🔍 **팩트:**` -> `> 👁️ **헌터의 뷰:**` 형식을 목숨 걸고 지켜라.
         2. **독백 필수:** 대시보드 아래 독백 란을 비우지 마라.
+        
+        
+        [🏷️ [성격태그] 가이드라인 (이 중에서 골라라)]
+        - **[안전형]:** 승률 55% 이상이거나, RSI 30 이하에서 줍는 저점 매수 전략
+        - **[공격형]:** 승률은 낮아도 한방 수익이 크거나, 저항선을 뚫을 때 들어가는 돌파 매매
+        - **[역추세]:** 시장 국면과 반대 포지션 (예: 하락장에서 롱, 상승장에서 숏)
+        - **[추세형]:** 시장 국면과 같은 포지션 (예: 하락장에서 숏, 상승장에서 롱)
 
         [작성 지침]
         1. **역할 분담 (중복 방지):**
@@ -310,15 +318,26 @@ class DailyNewsletter:
 
         ## 3. ⚔️ 전술 시뮬레이션 (Strategy Lab)
         {backtest_report}
-        > **💡 헌터의 코멘트:** (위 표에서 1위 전략인 **[{best_strat_name}]**이 승률 OO%로 가장 높다. 과거 데이터를 볼 때 신뢰할 만하다.)
+        > **💡 헌터의 코멘트:** (위 표{backtest_report}에서 승률과 수익률이 가장 좋은 1위 전략에 대해 구체적으로 분석해라.)
 
         ## 4. 오늘의 단타 전술 (Scalping Map)
         {tactical_table}
 
         ## 5. 최종 결론 (The Verdict)
-        - **상황 판단:** (국면과 데이터를 종합한 3줄 요약)
-        - **오늘의 승부수:** **[{best_strat_name} ({best_strat_pos})]** (이거 그대로 쓸 것!)
-        - **대응 전략:** ({best_strat_pos} 포지션에 맞는 진입/청산 가이드. 손절가 필수 포함)
+        - **상황 판단:** (현재 시장 국면과 데이터를 종합하여 3줄 이내로 상황을 브리핑해줘.)
+        **🔥 오늘의 추천 전략 Top 3 (골라 드세요)**
+        (위 '3. 전술 시뮬레이션' 표에서 승률 상위 3개 전략을 선정하여 아래 양식으로 작성해. 전략의 성격은 네가 판단해서 [안전형/공격형/역추세] 등의 태그를 달아.)
+        **1. [성격태그] 📉 전략명 (Position)**
+           - "한 줄 매력 어필 (예: 남들이 공포에 떨 때 줍줍!)"
+           - 가이드: (진입/청산/손절 내용 요약)       
+        **2. [성격태그] ⚡ 전략명 (Position)**
+           - "한 줄 매력 어필"
+           - 가이드: ...
+        **3. [성격태그] 🌊 전략명 (Position)**
+           - "한 줄 매력 어필"
+           - 가이드: ...       
+        
+        **종합 코멘트:** (위 전략들을 수행할 때 주의할 점이나 멘탈 관리 조언 한마디. 특히 1위 전략인 **{best_strat_name}** 위주로 조언해.)
         """
 
         user_prompt = f"[뉴스 데이터]\n{news_data}"
