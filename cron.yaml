@@ -1,0 +1,25 @@
+version: 1
+cron:
+  # 1. [주식] 시그널리스트 모닝 브리핑 (매일 아침 08:00 KST)
+  # UTC 23:00 (전날) -> 변경 없음
+  - name: "signalist_morning"
+    url: "/run_signalist"
+    schedule: "0 23 * * *"
+
+  # 2. [코인] 머니백 모닝 리포트 (매일 아침 08:30 KST)
+  # UTC 23:30 (전날) -> 30분 뒤로 미룸! (충돌 방지) ✅
+  - name: "moneybag_morning"
+    url: "/run_moneybag_morning"
+    schedule: "30 23 * * *"
+
+  # 3. [코인] 머니백 나이트 리포트 (매일 저녁 20:00 KST)
+  # UTC 11:00 (당일) -> 변경 없음
+  - name: "moneybag_night"
+    url: "/run_moneybag_night"
+    schedule: "0 11 * * *"
+
+  # 4. [데이터] KRX 데이터 3일치 강제 갱신 (매일 밤 22:00 KST)
+  # UTC 13:00 (당일) -> 변경 없음
+  - name: "update_krx_data"
+    url: "/update_stock_data"
+    schedule: "0 13 * * *"

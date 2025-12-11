@@ -1,0 +1,32 @@
+# [Core Data & Utils]
+pandas>=2.0.0
+numpy
+python-dotenv
+requests
+pytz
+tzdata>=2024.1
+lxml
+schedule
+
+# [Finance & Crypto]
+yfinance>=0.2.40
+ccxt>=4.0.0
+
+# [AI & LLM]
+openai>=1.0.0
+
+# [Media Generation: Image/Video/Audio]
+markdown
+pillow
+html2image
+gTTS
+edge-tts
+# moviepy는 호환성을 위해 2.0 미만 버전을 사용합니다.
+moviepy<2.0
+imageio-ffmpeg
+
+# [Messaging & Alerts]
+sendgrid
+python-telegram-bot
+
+Flask
