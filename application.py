@@ -13,7 +13,8 @@ def run_script(folder_name, module_path, args=[]):
     """특정 폴더로 이동해서 모듈을 실행하는 함수"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     target_dir = os.path.join(base_dir, folder_name)
-    cmd = [sys.executable, "-m"] + module_path.split(".") + args
+    # ✅ 수정됨: module_path를 쪼개지 않고 통째로 넣습니다.
+    cmd = [sys.executable, "-m", module_path] + args
     
     print(f"🚀 [Start Task] {module_path}")
     
