@@ -1,5 +1,7 @@
 import boto3
 import os
+import time
+from datetime import datetime, timedelta
 from botocore.exceptions import NoCredentialsError, ClientError
 
 class S3Manager:
@@ -8,20 +10,20 @@ class S3Manager:
         AWS S3 연결 관리자 (Moneybag & Signalist 공용)
         """
         self.bucket_name = bucket_name
-        # AWS 서버(EC2)에서는 권한을 자동으로 가져오므로 키 입력 불필요
         self.s3 = boto3.client('s3', region_name='ap-northeast-2')
 
     def upload_file(self, local_file_path, s3_file_path):
         """단일 파일 업로드"""
         if not os.path.exists(local_file_path):
+            print(f"❌ [Fail] 파일 없음: {local_file_path}")
             return False
         try:
-            s3_key = s3_file_path.replace("\\", "/") # 윈도우 경로 호환
-            print(f"☁️ [S3 Upload] {local_file_path} -> {s3_key}")
+            s3_key = s3_file_path.replace("\\", "/") 
+            print(f"☁️ [Upload] {local_file_path} -> {s3_key}")
             self.s3.upload_file(local_file_path, self.bucket_name, s3_key)
             return True
         except Exception as e:
-            print(f"❌ [S3 Upload Error] {e}")
+            print(f"❌ [Error] {e}")
             return False
 
     def download_file(self, s3_file_path, local_file_path):
@@ -32,43 +34,80 @@ class S3Manager:
             if local_dir and not os.path.exists(local_dir):
                 os.makedirs(local_dir)
             
-            print(f"📥 [S3 Download] {s3_key} -> {local_file_path}")
+            print(f"📥 [Download] {s3_key} -> {local_file_path}")
             self.s3.download_file(self.bucket_name, s3_key, local_file_path)
             return True
         except ClientError:
-            # 파일이 없는 건 에러가 아님 (첫 실행 등)
             return False
         except Exception as e:
-            print(f"❌ [S3 Download Error] {e}")
+            print(f"❌ [Error] {e}")
             return False
 
-    def upload_directory(self, local_dir, s3_prefix):
+    def upload_directory(self, local_dir, s3_prefix, recent_days=3):
         """
-        📁 [신규 기능] 폴더 통째로 업로드 (하위 폴더 포함)
-        :param local_dir: 로컬 폴더 경로 (예: iceage/data)
-        :param s3_prefix: S3에 저장될 앞부분 경로 (예: iceage/data)
+        📁 [스마트 동기화] 하위 폴더 포함, 날짜 기준 업로드
+        :param recent_days: 0=당일(자정 이후), N=최근 N일, None=전체
         """
         if not os.path.exists(local_dir):
-            print(f"⚠️ [S3 Sync] 로컬에 폴더가 없습니다: {local_dir}")
+            print(f"⚠️ [Skip] 로컬 폴더 없음: {local_dir}")
             return
 
-        print(f"\n📦 [S3 Directory Sync] 폴더 동기화 시작: {local_dir} -> {s3_prefix}")
+        print(f"\n📦 [Sync Start] {local_dir} (하위 폴더 포함) -> {s3_prefix}")
+        
+        # 기준 시간 설정
+        if recent_days is not None:
+            if recent_days == 0:
+                cutoff_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                print(f"   👉 옵션: [당일] {cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} 이후 파일만 업로드")
+            else:
+                cutoff_time = datetime.now() - timedelta(days=recent_days)
+                print(f"   👉 옵션: [최근 {recent_days}일] {cutoff_time.strftime('%Y-%m-%d')} 이후 파일만 업로드")
+        else:
+            cutoff_time = None
+            print("   👉 옵션: 모든 파일 업로드")
         
         count = 0
-        # os.walk로 모든 하위 폴더/파일을 탐색
+        skip_count = 0
+        
+        # os.walk로 모든 하위 폴더 재귀 탐색
         for root, dirs, files in os.walk(local_dir):
+            # 불필요한 시스템 폴더 제외
+            if 'venv' in root or '.git' in root or '__pycache__' in root:
+                continue
+
             for filename in files:
-                # 로컬 파일의 절대 경로
                 local_path = os.path.join(root, filename)
                 
-                # 폴더 구조를 유지하기 위해 상대 경로 계산
-                # 예: iceage/data/raw/prices.csv -> raw/prices.csv
+                # 날짜 필터링
+                if cutoff_time:
+                    mtime = datetime.fromtimestamp(os.path.getmtime(local_path))
+                    if mtime < cutoff_time:
+                        skip_count += 1
+                        continue 
+
+                # S3 경로 계산 (상대 경로 유지)
                 relative_path = os.path.relpath(local_path, local_dir)
-                
-                # S3 경로 = 접두어 + 상대 경로
                 s3_path = os.path.join(s3_prefix, relative_path).replace("\\", "/")
                 
                 if self.upload_file(local_path, s3_path):
                     count += 1
         
-        print(f"✅ [S3 Directory Sync] 총 {count}개 파일 업로드 완료!\n")
+        print(f"✅ [Sync Done] 업로드: {count}개 / 건너뜀(구형): {skip_count}개")
+
+
+# --- 👇 로컬 테스트 실행 영역 ---
+if __name__ == "__main__":
+    manager = S3Manager()
+    
+    # 테스트할 폴더 목록 (하위 폴더까지 싹 다 뒤짐)
+    target_folders = [
+        "iceage/data",
+        "iceage/out",
+        "moneybag/data"
+    ]
+    
+    print("\n🚀 [테스트 시작] 당일(오늘 0시 이후) 생성된 파일만 업로드합니다.\n")
+    
+    for folder in target_folders:
+        # recent_days=0 : 오늘 만든 것만!
+        manager.upload_directory(folder, folder, recent_days=0)

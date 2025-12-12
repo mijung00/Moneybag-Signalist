@@ -120,7 +120,7 @@ def run_routine(mode="morning"):
         try: notifier.send_message(f"🚨 [Moneybag] {mode.upper()} 이메일 발송 실패!\n에러: {e}")
         except: pass
 
-    # ... (이메일 발송 코드 아래) ...
+# ... (위쪽 코드는 그대로 유지) ...
 
     # ---------------------------------------------------------
     # 4단계: S3 데이터 백업 (퇴근)
@@ -130,19 +130,21 @@ def run_routine(mode="morning"):
             print("\n☁️ [S3 Sync] 머니백 데이터 및 결과물 전체 백업 중...")
             s3 = S3Manager()
             
-            # moneybag 폴더 위치 찾기 (BASE_DIR/moneybag)
+            # [테스트용] recent_days=0
+            BACKUP_DAYS = 0
+            
+            # moneybag 폴더 위치 찾기
             moneybag_root = BASE_DIR / "moneybag"
             
-            # 1. moneybag/data 폴더 (뉴스레터 MD, 로그 등 핵심 데이터)
+            # 1. moneybag/data 폴더
             data_dir = moneybag_root / "data"
             if data_dir.exists():
-                # 로컬: moneybag/data -> S3: moneybag/data
-                s3.upload_directory(str(data_dir), "moneybag/data")
+                s3.upload_directory(str(data_dir), "moneybag/data", recent_days=BACKUP_DAYS)
             
-            # 2. moneybag/out 폴더 (혹시 이미지/영상이 여기 저장된다면)
+            # 2. moneybag/out 폴더
             out_dir = moneybag_root / "out"
             if out_dir.exists():
-                s3.upload_directory(str(out_dir), "moneybag/out")
+                s3.upload_directory(str(out_dir), "moneybag/out", recent_days=BACKUP_DAYS)
                 
         except Exception as e:
             print(f"⚠️ [S3 Error] 백업 중 오류 발생: {e}")

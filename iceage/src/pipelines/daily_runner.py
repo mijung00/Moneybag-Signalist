@@ -362,7 +362,7 @@ def main() -> None:
 
         except Exception as e:
             print(f"[WARN] 슬랙 알림 전송 실패: {e}")
-    # ... (슬랙 알림 코드 아래) ...
+# ... (위쪽 코드는 그대로 유지) ...
 
     # ====================================================
     # [수정] 폴더 단위 통째로 S3 백업 (퇴근)
@@ -372,16 +372,17 @@ def main() -> None:
 
     print("\n☁️ [S3 Sync] 데이터 및 결과물 전체 백업 중...")
     
-    # 1. iceage/data 폴더 (시세, 로그, 가공 데이터 등)
-    # 로컬 경로: 현재 프로젝트 루트/data -> S3 경로: iceage/data
-    s3.upload_directory(str(DATA_DIR), "iceage/data")
+    # [테스트용] recent_days=0 (오늘 파일만)
+    # [실사용] recent_days=2 (최근 2~3일치)
+    BACKUP_DAYS = 0 
+    
+    # 1. iceage/data 폴더
+    s3.upload_directory(str(DATA_DIR), "iceage/data", recent_days=BACKUP_DAYS)
 
-    # 2. iceage/out 폴더 (이미지, 영상, 뉴스레터 결과물)
-    # (만약 out 폴더가 data 폴더 안에 있다면 위에서 이미 올라갔겠지만, 
-    # 혹시 data랑 형제 폴더(iceage/out)로 되어있을 경우를 대비해 추가)
+    # 2. iceage/out 폴더
     out_dir = PROJECT_ROOT / "out"
     if out_dir.exists():
-        s3.upload_directory(str(out_dir), "iceage/out")
+        s3.upload_directory(str(out_dir), "iceage/out", recent_days=BACKUP_DAYS)
 
     print("\n✅ daily_runner 완료")
 
