@@ -31,28 +31,29 @@ def run_script(folder_name, module_path, args=[]):
 # ==========================================
 # 🦅 왓치독 실행기 (경비 대장 깨우기)
 # ==========================================
-def kickstart_watchdog_manager():
-    """
-    서버 옆에 있는 watchdogs.py 파일을 백그라운드에서 실행합니다.
-    """
-    try:
-        # 현재 폴더(C:\ubuntu)에 있는 watchdogs.py를 찾음
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(current_dir, "watchdogs.py")
-
-        print(f"🦅 [System] 왓치독 매니저를 실행합니다... ({script_path})")
-        
-        # Popen을 써야 웹서버가 멈추지 않고 계속 돌아감 (Non-blocking)
-        # 로그는 웹서버 로그랑 같이 찍히도록 설정
-        subprocess.Popen([sys.executable, script_path], cwd=current_dir)
-        
-    except Exception as e:
-        print(f"❌ [Critical] 왓치독 실행 실패: {e}")
+# def kickstart_watchdog_manager():
+#     """
+#     서버 옆에 있는 watchdogs.py 파일을 백그라운드에서 실행합니다.
+#     """
+#     try:
+#         # 현재 폴더(C:\ubuntu)에 있는 watchdogs.py를 찾음
+#         current_dir = os.path.dirname(os.path.abspath(__file__))
+#         script_path = os.path.join(current_dir, "watchdogs.py")
+#
+#         print(f"🦅 [System] 왓치독 매니저를 실행합니다... ({script_path})")
+#         
+#         # Popen을 써야 웹서버가 멈추지 않고 계속 돌아감 (Non-blocking)
+#         # 로그는 웹서버 로그랑 같이 찍히도록 설정
+#         subprocess.Popen([sys.executable, script_path], cwd=current_dir)
+#         
+#     except Exception as e:
+#         print(f"❌ [Critical] 왓치독 실행 실패: {e}")
 
 # 🔥 서버가 켜질 때 왓치독 매니저도 같이 실행!
 # (로컬 개발 환경에서 저장할 때마다 두 번 실행되는 것 방지)
-if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-    kickstart_watchdog_manager()
+# if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+#     kickstart_watchdog_manager()
+
 
 
 # ==========================================
