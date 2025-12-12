@@ -10,12 +10,10 @@ from sendgrid.helpers.mail import Mail, To
 import re
 
 # 프로젝트 루트 경로 (moneybag 폴더의 상위 폴더)
-# 이 파일 위치: project/moneybag/src/pipelines/send_email.py
-# parents[0]=pipelines, [1]=src, [2]=moneybag, [3]=project(루트)
 BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env")
 
-# 구독자 파일 설정 (루트 폴더에 있는 subscribers_moneybag.csv)
+# 구독자 파일 설정
 SUBSCRIBERS_FILE = BASE_DIR / "subscribers_moneybag.csv"
 
 def get_subscribers() -> list[str]:
@@ -50,9 +48,7 @@ def get_subscribers() -> list[str]:
 class EmailSender:
     def __init__(self):
         self.api_key = os.getenv("SENDGRID_API_KEY")
-        self.from_email = os.getenv("MONEYBAG_FROM_EMAIL") # .env에서 가져옴
-        
-        # [수정됨] .env 대신 CSV 파일에서 구독자 로드
+        self.from_email = os.getenv("MONEYBAG_FROM_EMAIL")
         self.to_emails = get_subscribers()
         
         if not self.to_emails:
@@ -72,42 +68,52 @@ class EmailSender:
                 new_lines.append("")
         return "\n".join(new_lines)
 
-
-
     def convert_md_to_html(self, md_text):
         safe_md = self.preprocess_markdown(md_text)
         
-        # [수정 1] 리스트(- 또는 *)가 일반 텍스트 바로 뒤에 붙어있으면 
-        # 마크다운이 리스트로 인식을 못합니다. 강제로 줄바꿈 2번을 넣어줍니다.
-        # 예: "**제목**\n- 내용" -> "**제목**\n\n- 내용"
+        # [핵심 수정 1] 리스트(-) 처리: 일반 텍스트 뒤에 붙으면 강제 개행
         safe_md = re.sub(r'(?<!\n)\n\s*([-*] )', r'\n\n\1', safe_md)
+
+        # [핵심 수정 2] 전략 번호(1, 2, 3) 및 불꽃 아이콘 강제 줄바꿈 (뭉침 방지)
+        # 이 부분이 없어서 아까 메일에서 다닥다닥 붙어서 나온 거야.
+        safe_md = safe_md.replace("\n**🔥", "\n\n**🔥")
+        safe_md = safe_md.replace("\n**1.", "\n\n**1.")
+        safe_md = safe_md.replace("\n**2.", "\n\n**2.")
+        safe_md = safe_md.replace("\n**3.", "\n\n**3.")
 
         html_body = markdown.markdown(safe_md, extensions=['tables', 'nl2br'])
         
-        # [수정 2] CSS 스타일 강화 (ul, li 태그 디자인 추가)
+        # [CSS 스타일] 가독성을 위해 strong 태그(굵은 글씨)에 여백 추가
         styled_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
             <style>
-                body {{ font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333; padding: 20px; }}
-                h1 {{ color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }}
-                h2 {{ color: #0056b3; margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
-                h3 {{ color: #2c3e50; margin-top: 25px; }}
+                body {{ font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; }}
+                
+                h1 {{ color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; margin-bottom: 30px; }}
+                h2 {{ color: #0056b3; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 5px; font-size: 1.5em; }}
+                h3 {{ color: #2c3e50; margin-top: 30px; font-size: 1.2em; }}
                 
                 /* 테이블 스타일 */
                 table {{ width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }}
                 th, td {{ border: 1px solid #ddd; padding: 10px; text-align: center; }}
-                th {{ background-color: #f8f9fa; color: #333; font-weight: bold; }}
+                th {{ background-color: #f8f9fa; color: #555; font-weight: bold; }}
                 tr:nth-child(even) {{ background-color: #fdfdfd; }}
 
-                /* [추가된 부분] 리스트 스타일 */
+                /* 리스트 스타일 */
                 ul {{ margin: 10px 0 20px 20px; padding-left: 0; }}
-                li {{ margin-bottom: 5px; list-style-type: disc; }}
+                li {{ margin-bottom: 8px; list-style-type: disc; }}
+                
+                /* [추가] 전략 번호(굵은 글씨)가 문단 처음에 오면 위쪽 여백을 줌 */
+                p > strong:first-child {{ color: #d35400; }} 
 
                 /* 인용문 스타일 */
-                blockquote {{ border-left: 4px solid #0056b3; margin: 15px 0; padding: 10px 15px; background-color: #f1f8ff; color: #555; }}
+                blockquote {{ border-left: 4px solid #0056b3; margin: 20px 0; padding: 15px; background-color: #f1f8ff; color: #555; border-radius: 4px; }}
+                
+                /* 구분선 */
+                hr {{ border: 0; height: 1px; background: #eee; margin: 40px 0; }}
 
                 .footer {{ margin-top: 50px; font-size: 12px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 20px; }}
             </style>
@@ -117,6 +123,7 @@ class EmailSender:
                 {html_body}
                 <div class="footer">
                     <p>🐋 <b>웨일 헌터의 시크릿 노트</b> | Moneybag Project</p>
+                    <p>본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.</p>
                 </div>
             </div>
         </body>
@@ -137,6 +144,7 @@ class EmailSender:
             lines = f.readlines()
         
         headline = "웨일 헌터 브리핑"
+        # 헤드라인 추출 시 # 제거
         if lines and lines[0].startswith("# "):
             headline = lines[0].strip().replace("# ", "").replace("🐋 ", "")
         
@@ -145,13 +153,12 @@ class EmailSender:
         
         subject = f"[Secret Note] 🐋 {headline}"
 
-        # SendGrid 발송 (To 객체 사용)
+        # SendGrid 발송
         message = Mail(
             from_email=self.from_email,
             subject=subject,
             html_content=html_content
         )
-        # 여러 명에게 개별 발송 (BCC 효과)
         message.to = [To(email) for email in self.to_emails]
 
         try:
@@ -162,5 +169,4 @@ class EmailSender:
             print(f"❌ [Email] 전송 실패: {e}")
 
 if __name__ == "__main__":
-    # 테스트용 코드
     pass
