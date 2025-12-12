@@ -3,12 +3,12 @@ cron:
   # 1. [테스트] 시그널리스트 (오늘 밤 22:10 KST 실행)
   - name: "signalist_test_run"
     url: "/run_signalist"
-    schedule: "10 13 * * *"
+    schedule: "30 13 * * *"
 
   # 2. [테스트] 머니백 (오늘 밤 22:35 KST 실행)
   - name: "moneybag_test_run"
     url: "/run_moneybag_morning"
-    schedule: "35 13 * * *"
+    schedule: "55 13 * * *"
 
   # 3. [데이터] KRX 데이터 3일치 강제 갱신 (기존 유지)
   - name: "update_krx_data"
