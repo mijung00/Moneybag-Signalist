@@ -93,11 +93,13 @@ def main() -> None:
     now = datetime.now()
 
     # ---------------------------------------------------------
-    # [젬공의 책략 1] 실행 가능 여부 먼저 판단 (철벽 방어)
+    # [젬공의 책략 1] 실행 가능 여부 먼저 판단
     # ---------------------------------------------------------
-    # 플래그 읽기
-    allow_non_business_env = os.environ.get("ALLOW_RUN_NON_BUSINESS", "0")
-    allow_non_business = allow_non_business_env == "1"
+    # [디버깅] 실제 환경변수 값을 출력해서 확인 (로그에서 확인 가능)
+    raw_env_val = os.environ.get("ALLOW_RUN_NON_BUSINESS", "0")
+    print(f"[DEBUG] 현재 ALLOW_RUN_NON_BUSINESS 값: '{raw_env_val}'")
+    
+    allow_non_business = raw_env_val.strip() == "1"
 
     # 인자 없이 실행된 경우(=자동 스케줄러), 오늘이 영업일인지 먼저 체크
     if len(sys.argv) < 2:
@@ -127,13 +129,16 @@ def main() -> None:
     
     print("\n📥 [S3 Sync] 필수 과거 데이터 다운로드 중...")
 
-    # 1. 누적 로그 파일 (이게 있어야 레이더/히스토리가 이어짐)
-    # S3 경로: iceage/data/processed/signalist_today_log.csv (업로드 규칙과 통일)
-    log_file_local = "iceage/data/processed/signalist_today_log.csv"
+    # 1. 누적 로그 파일
+    # [수정] 로컬 경로는 'iceage/'를 빼야 함 (PROJECT_ROOT가 이미 iceage 폴더임)
+    log_file_local = "data/processed/signalist_today_log.csv" 
+    
+    # [유지] S3 키는 버킷 구조상 'iceage/'가 붙어 있는 게 맞음 (확인 필요)
     log_file_s3 = "iceage/data/processed/signalist_today_log.csv"
     
-    # 로컬 경로 생성 및 다운로드
-    (PROJECT_ROOT / "iceage/data/processed").mkdir(parents=True, exist_ok=True)
+    # 로컬 폴더 생성 (data/processed)
+    (PROJECT_ROOT / "data/processed").mkdir(parents=True, exist_ok=True)
+    
     full_log_path = PROJECT_ROOT / log_file_local
     
     if s3.download_file(log_file_s3, str(full_log_path)):
@@ -142,10 +147,10 @@ def main() -> None:
         print(f"   ⚠️ [Skip] 로그 파일 없음 (첫 실행이거나 S3에 없음)")
 
     # 2. 괴리율 분석(volume_anomaly)을 위한 과거 시세 데이터 (최근 60일치)
-    # 매일 새로운 환경에서 돌더라도, 과거 60일치 시세 파일이 있어야 '평균 거래량' 등을 계산함.
+    LOOKBACK_DAYS = 60
     
-    LOOKBACK_DAYS = 60 # 넉넉하게 60일치
-    (PROJECT_ROOT / "iceage/data/raw").mkdir(parents=True, exist_ok=True)
+    # [수정] 여기도 로컬 경로는 'data/raw'로 설정
+    (PROJECT_ROOT / "data/raw").mkdir(parents=True, exist_ok=True)
 
     print(f"   👉 과거 {LOOKBACK_DAYS}일치 시세 데이터 확인 및 다운로드...")
     
@@ -155,12 +160,15 @@ def main() -> None:
         past_str = past_date.isoformat()
         
         filename = f"kr_prices_{past_str}.csv"
-        local_path = PROJECT_ROOT / "iceage/data/raw" / filename
+        
+        # [수정] PROJECT_ROOT + "data/raw"
+        local_path = PROJECT_ROOT / "data/raw" / filename
+        
+        # [유지] S3 경로는 iceage/data/raw
         s3_path = f"iceage/data/raw/{filename}"
         
         # 로컬에 없으면 다운로드 시도
         if not local_path.exists():
-            # 영업일이 아닐 수도 있으니, 실패해도 조용히 넘어감 (S3에 파일이 없을 수 있음)
             if s3.download_file(s3_path, str(local_path)):
                 dn_count += 1
 
