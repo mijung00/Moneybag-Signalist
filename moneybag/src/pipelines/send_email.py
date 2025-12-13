@@ -16,6 +16,9 @@ load_dotenv(BASE_DIR / ".env")
 # 구독자 파일 설정
 SUBSCRIBERS_FILE = BASE_DIR / "subscribers_moneybag.csv"
 
+# 👇 [추가] HTML 파일이 저장될 폴더 경로 정의
+OUTPUT_DIR = BASE_DIR / "moneybag" / "out"
+
 def get_subscribers() -> list[str]:
     """CSV 파일에서 구독자 명단을 읽어옵니다."""
     test_recipient = os.getenv("TEST_RECIPIENT")
@@ -131,6 +134,23 @@ class EmailSender:
         """
         return styled_html
 
+    # 👇 [추가] 이 위치에 save_html 함수를 그대로 붙여넣으세요.
+    def save_html(self, html_content, date_str):
+        """HTML 파일로 저장"""
+        try:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            filename = f"Moneybag_Letter_{date_str}.html"
+            file_path = OUTPUT_DIR / filename
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            print(f"💾 [Save] HTML 저장 완료: {file_path}")
+            return file_path
+        except Exception as e:
+            print(f"⚠️ [Skip] HTML 저장 실패: {e}")
+            return None
+
+
+
     def send(self, file_path):
         if not self.api_key: 
             print("❌ SendGrid API Key가 없습니다.")
@@ -150,6 +170,11 @@ class EmailSender:
         
         md_text = "".join(lines)
         html_content = self.convert_md_to_html(md_text)
+        
+        
+        # 👇 [추가] HTML 내용을 파일로 저장하는 명령
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        self.save_html(html_content, today_str)
         
         subject = f"[Secret Note] 🐋 {headline}"
 

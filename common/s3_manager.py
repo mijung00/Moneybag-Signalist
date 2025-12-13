@@ -43,7 +43,7 @@ class S3Manager:
             print(f"❌ [Error] {e}")
             return False
 
-    def upload_directory(self, local_dir, s3_prefix, recent_days=3):
+    def upload_directory(self, local_dir, s3_prefix, recent_days=2):
         """
         📁 [스마트 동기화] 하위 폴더 포함, 날짜 기준 업로드
         :param recent_days: 0=당일(자정 이후), N=최근 N일, None=전체

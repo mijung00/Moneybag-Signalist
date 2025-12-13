@@ -19,7 +19,6 @@ openai>=1.0.0
 # [Media Generation]
 markdown
 pillow
-html2image
 gTTS
 edge-tts
 moviepy<2.0

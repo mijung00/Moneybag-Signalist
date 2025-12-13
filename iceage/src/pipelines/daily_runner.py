@@ -374,7 +374,7 @@ def main() -> None:
     
     # [테스트용] recent_days=0 (오늘 파일만)
     # [실사용] recent_days=2 (최근 2~3일치)
-    BACKUP_DAYS = 0 
+    BACKUP_DAYS = 2 
     
     # 1. iceage/data 폴더
     s3.upload_directory(str(DATA_DIR), "iceage/data", recent_days=BACKUP_DAYS)
