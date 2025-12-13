@@ -179,8 +179,9 @@ def generate_newsletter_bundle(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def generate_social_snippets_from_markdown(newsletter_md: str) -> Dict[str, str]:
     """
-    [SNS 전용: 도파민 + 정보 밀도 강화 버전]
-    뉴스레터 원문을 바탕으로 '꽉 찬' 카드뉴스 텍스트와 쇼츠 대본을 생성합니다.
+    [SNS 전용: 인스타그램 집중 버전]
+    뉴스레터 원문을 바탕으로 '꽉 찬' 카드뉴스 텍스트(캡션)를 생성합니다.
+    (영상 대본 생성 기능은 제거됨)
     """
     
     system = (
@@ -202,22 +203,15 @@ def generate_social_snippets_from_markdown(newsletter_md: str) -> Dict[str, str]
     [뉴스레터 원문]
     {newsletter_md}
 
-    위 내용을 재료로, 인스타와 유튜브용 '고밀도 콘텐츠'를 작성해줘.
+    위 내용을 재료로, 인스타용 '고밀도 콘텐츠'를 작성해줘.
     
     ========================
     [1] 인스타그램 카드뉴스
-    - 인스타그램 업로드용 본문 (Caption)과 내용과 연관되고 이슈될만한 해시태그 5개를 뽑아줘: 독자의 클릭을 유도하는 흥미로운 요약글. (이미지 안에 들어갈 텍스트는 만들지 마.)
+    - 인스타그램 업로드용 본문 (Caption)과 내용과 연관되고 이슈될만한 해시태그 5개를 뽑아줘: 독자의 클릭을 유도하는 흥미로운 요약글.
+    - 슬라이드 내용은 카드뉴스 이미지 생성용으로 쓰일거야.
 
     ========================
-    [2] YouTube Shorts 대본 (꽉 찬 50초)
-    - 쉴 새 없이 몰아치는 정보량.
-    - (0-5초) [강력한 훅] "오늘 OOO 주주님들, 밤잠 설치시겠는데요? (또는 축하합니다!)"
-    - (5-20초) [상황 전달] "오늘 지수는 OOO했는데, 얘 혼자 OO% 등락! 이게 말이 됩니까? 역대급 수급 신호인 OO시그마가 떴습니다." (배수 표현 금지!)
-    - (20-40초) [원인 분석] "이유는 딱 하나, OOO 때문입니다. 지금 시장에서는 이걸 '저점 매수 기회(또는 고점 신호)'로 보고 있는데요..."
-    - (40-50초) [클로징] "내일 장 시초가가 중요합니다. 남들보다 먼저 대응하고 싶다면? 구독 누르고 알림 설정!"
-
-    ========================
-    [3] JSON 출력 형식 (엄수)
+    [2] JSON 출력 형식 (엄수)
     {{
       "instagram": {{
         "slides": [ 
@@ -226,25 +220,24 @@ def generate_social_snippets_from_markdown(newsletter_md: str) -> Dict[str, str]
         ],
         "caption": "인스타 본문",
         "hashtags": "#..."
-      }},
-      "shorts": {{
-        "title": "유튜브 제목",
-        "script": "대본"
       }}
     }}
     """
 
-    raw = _chat(system, user_prompt, temperature=0.85, max_tokens=3000)
+    # 유튜브 대본이 빠졌으므로 max_tokens를 줄여도 됨 (3000 -> 2000)
+    raw = _chat(system, user_prompt, temperature=0.85, max_tokens=2000)
     
     try:
         clean_json = _strip_json_fence(raw)
         data = json.loads(clean_json)
     except Exception as e:
         logger.error(f"[LLM Error] SNS parsing failed: {e}")
-        return {}
+        return {
+            "instagram_caption": "내용 생성 실패",
+            "instagram_hashtags": ""
+        }
 
     insta = data.get("instagram", {})
-    shorts = data.get("shorts", {})
     
     # 인스타 슬라이드 텍스트 조립
     slides = insta.get("slides", [])
@@ -257,8 +250,5 @@ def generate_social_snippets_from_markdown(newsletter_md: str) -> Dict[str, str]
     return {
         "instagram_caption": f"{slide_text}[캡션]\n{insta.get('caption', '')}",
         "instagram_hashtags": insta.get("hashtags", ""),
-        "youtube_title": shorts.get("title", ""),
-        "youtube_thumbnail_text": "오늘의 핫이슈",
-        "youtube_script": shorts.get("script", ""),
-        "youtube_long_script": "" 
+        # 유튜브 관련 키(key)는 더 이상 반환하지 않음
     }

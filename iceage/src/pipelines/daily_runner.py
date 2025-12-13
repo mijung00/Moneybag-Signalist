@@ -329,32 +329,34 @@ def main() -> None:
     else:
         print("[INFO] RUN_CARDNEWS_OUTPUT!=1 이므로 카드뉴스 생성은 스킵합니다.")
         
+# -----------------------
+    # 10) TTS 오디오 생성 (쇼츠 / 데일리) -> [주석 처리: 사용 안 함]
     # -----------------------
-    # 10) TTS 오디오 생성 (쇼츠 / 데일리)
-    # -----------------------
-    if run_tts_output:
-        run_step(
-            "TTS 오디오 생성",
-            ["python", "-m", "iceage.src.pipelines.generate_tts_assets", ref_str],
-        )
-    else:
-        print("[INFO] RUN_TTS_OUTPUT!=1 이므로 TTS 생성은 스킵합니다.")
+    # if run_tts_output:
+    #     run_step(
+    #         "TTS 오디오 생성",
+    #         ["python", "-m", "iceage.src.pipelines.generate_tts_assets", ref_str],
+    #     )
+    # else:
+    #     print("[INFO] RUN_TTS_OUTPUT!=1 이므로 TTS 생성은 스킵합니다.")
 
     # -----------------------
-    # 11) SNS 영상 생성 (쇼츠 / 데일리)
+    # 11) SNS 영상 생성 (쇼츠 / 데일리) -> [주석 처리: 사용 안 함]
     # -----------------------
-    if run_video_output:
-        run_step(
-            "SNS 영상 생성",
-            ["python", "-m", "iceage.src.pipelines.generate_video_assets", ref_str],
-        )
-    else:
-        print("[INFO] RUN_VIDEO_OUTPUT!=1 이므로 SNS 영상 생성은 스킵합니다.")
+    # if run_video_output:
+    #     run_step(
+    #         "SNS 영상 생성",
+    #         ["python", "-m", "iceage.src.pipelines.generate_video_assets", ref_str],
+    #     )
+    # else:
+    #     print("[INFO] RUN_VIDEO_OUTPUT!=1 이므로 SNS 영상 생성은 스킵합니다.")
     
-
+    
     # -----------------------
     # 12) 이메일 발송 (뉴스레터 + SNS 관리자) ★
     # -----------------------
+    
+    
     if os.getenv("NEWSLETTER_AUTO_SEND", "0") == "1":
         print("[INFO] NEWSLETTER_AUTO_SEND=1 이므로 이메일 발송 실행")
         run_step(

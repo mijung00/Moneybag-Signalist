@@ -18,10 +18,9 @@ openai>=1.0.0
 
 # [Media Generation]
 markdown
-Pillow==9.5.0
+Pillow>=10.2.0
 gTTS
 edge-tts
-moviepy<2.0
 imageio-ffmpeg
 
 # [Messaging & Alerts]
