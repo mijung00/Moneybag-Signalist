@@ -135,7 +135,12 @@ if __name__ == '__main__':
             ref_date = dt.date.today().isoformat()
 
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
-    from_email = os.getenv("SIGNALIST_FROM_EMAIL", "signal@fincore.co.kr")
+    
+    # [수정] 이메일 이름과 주소를 환경 변수에서 각각 가져와서 조립
+    sender_name = os.getenv("SIGNALIST_SENDER_NAME", "Signalist Daily")
+    sender_addr = os.getenv("SIGNALIST_SENDER_ADDRESS", "admin@fincore.co.kr")
+    from_email = f"{sender_name} <{sender_addr}>"
+    
     admin_email = os.getenv("ADMIN_EMAIL", "admin@fincore.co.kr")
     test_recipient = os.getenv("TEST_RECIPIENT")
     subject_prefix = os.getenv("NEWSLETTER_SUBJECT_PREFIX", "[Signalist Daily]")

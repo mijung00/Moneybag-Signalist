@@ -51,7 +51,12 @@ def get_subscribers() -> list[str]:
 class EmailSender:
     def __init__(self):
         self.api_key = os.getenv("SENDGRID_API_KEY")
-        self.from_email = os.getenv("MONEYBAG_FROM_EMAIL")
+        
+        # [수정] 이메일 이름과 주소를 환경 변수에서 각각 가져와서 조립
+        sender_name = os.getenv("MONEYBAG_SENDER_NAME", "The Whale Hunter")
+        sender_addr = os.getenv("MONEYBAG_SENDER_ADDRESS", "admin@fincore.co.kr")
+        self.from_email = f"{sender_name} <{sender_addr}>"
+        
         self.to_emails = get_subscribers()
         
         if not self.to_emails:
