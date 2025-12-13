@@ -63,19 +63,19 @@ def run_script(folder_name, module_path, args=[]):
 # ==========================================
 # 🌐 플라스크 라우트 (뉴스레터 및 헬스체크)
 # ==========================================
-@application.route('/run_moneybag_morning', methods=['POST'])
+@application.route('/run_moneybag_morning', methods=['GET', 'POST'])
 def moneybag_morning():
     return run_script("moneybag", "src.pipelines.daily_runner", ["morning"]), 200
 
-@application.route('/run_moneybag_night', methods=['POST'])
+@application.route('/run_moneybag_night', methods=['GET', 'POST'])
 def moneybag_night():
     return run_script("moneybag", "src.pipelines.daily_runner", ["night"]), 200
 
-@application.route('/run_signalist', methods=['POST'])
+@application.route('/run_signalist', methods=['GET', 'POST'])
 def signalist_morning():
     return run_script("iceage", "src.pipelines.daily_runner"), 200
 
-@application.route('/update_stock_data', methods=['POST'])
+@application.route('/update_stock_data', methods=['GET', 'POST'])
 def update_stock_data():
     today = datetime.now()
     logs = []
