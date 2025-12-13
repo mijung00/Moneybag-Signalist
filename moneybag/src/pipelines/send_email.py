@@ -16,8 +16,8 @@ load_dotenv(BASE_DIR / ".env")
 # 구독자 파일 설정
 SUBSCRIBERS_FILE = BASE_DIR / "subscribers_moneybag.csv"
 
-# 👇 [추가] HTML 파일이 저장될 폴더 경로 정의
-OUTPUT_DIR = BASE_DIR / "moneybag" / "out"
+# 👇 [수정] data 폴더 안으로 정리
+OUTPUT_DIR = BASE_DIR / "moneybag" / "data" / "out"
 
 def get_subscribers() -> list[str]:
     """CSV 파일에서 구독자 명단을 읽어옵니다."""

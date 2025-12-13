@@ -316,15 +316,15 @@ def main() -> None:
     )
 
     # -----------------------
-    # 8) SNS용 콘텐츠 생성 (인스타/숏폼/데일리) ★
+    # 8) SNS용 콘텐츠 생성 (인스타/숏폼/데일리) ★ -> LLM 쓰는 거라 일단 끔
     # -----------------------
-    if run_social_output:
-        run_step(
-            "SNS용 콘텐츠 생성",
-            ["python", "-m", "iceage.src.pipelines.social_contents", ref_str],
-        )
-    else:
-        print("[INFO] RUN_SOCIAL_OUTPUT!=1 이므로 SNS 콘텐츠 생성은 스킵합니다.")
+    # if run_social_output:
+    #     run_step(
+    #         "SNS용 콘텐츠 생성",
+    #         ["python", "-m", "iceage.src.pipelines.social_contents", ref_str],
+    #     )
+    # else:
+    #     print("[INFO] SNS 콘텐츠 생성(LLM)은 주석 처리되어 스킵합니다.")
         
     # -----------------------
     # 9) SNS 카드뉴스 이미지 생성 (인스타 카드) ★

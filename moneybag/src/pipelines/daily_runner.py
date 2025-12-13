@@ -141,10 +141,6 @@ def run_routine(mode="morning"):
             if data_dir.exists():
                 s3.upload_directory(str(data_dir), "moneybag/data", recent_days=BACKUP_DAYS)
             
-            # 2. moneybag/out 폴더
-            out_dir = moneybag_root / "out"
-            if out_dir.exists():
-                s3.upload_directory(str(out_dir), "moneybag/out", recent_days=BACKUP_DAYS)
                 
         except Exception as e:
             print(f"⚠️ [S3 Error] 백업 중 오류 발생: {e}")
