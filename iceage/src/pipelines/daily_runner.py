@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -121,22 +121,50 @@ def main() -> None:
     print(f"\n📅 기준일(ref_date): {ref_str}")
 
     # ====================================================
-    # [추가] S3에서 과거 데이터 불러오기 (출근 준비)
+    # [수정] S3에서 필수 과거 데이터 불러오기 (출근 준비)
     # ====================================================
     s3 = S3Manager()
     
-    # 누적해야 할 파일 리스트 (필요한 거 있으면 여기에 계속 추가하면 됨)
-    sync_files = [
-        # 로컬 경로 (내 컴퓨터)  <->  S3 경로 (창고 위치)
-        ("data/processed/signalist_today_log.csv", "data/iceage/signalist_today_log.csv"),
-    ]
+    print("\n📥 [S3 Sync] 필수 과거 데이터 다운로드 중...")
 
-    print("\n📥 [S3 Sync] 과거 데이터 다운로드 중...")
-    for local, remote in sync_files:
-        # daily_runner.py 위치 기준에서 프로젝트 루트(iceage 폴더 밖)로 경로 잡기 위해 수정 필요할 수 있음
-        # 일단 상대 경로로 시도
-        full_local_path = PROJECT_ROOT / local
-        s3.download_file(remote, str(full_local_path))
+    # 1. 누적 로그 파일 (이게 있어야 레이더/히스토리가 이어짐)
+    # S3 경로: iceage/data/processed/signalist_today_log.csv (업로드 규칙과 통일)
+    log_file_local = "iceage/data/processed/signalist_today_log.csv"
+    log_file_s3 = "iceage/data/processed/signalist_today_log.csv"
+    
+    # 로컬 경로 생성 및 다운로드
+    (PROJECT_ROOT / "iceage/data/processed").mkdir(parents=True, exist_ok=True)
+    full_log_path = PROJECT_ROOT / log_file_local
+    
+    if s3.download_file(log_file_s3, str(full_log_path)):
+        print(f"   ✅ 로그 파일 다운로드 완료: {log_file_local}")
+    else:
+        print(f"   ⚠️ [Skip] 로그 파일 없음 (첫 실행이거나 S3에 없음)")
+
+    # 2. 괴리율 분석(volume_anomaly)을 위한 과거 시세 데이터 (최근 60일치)
+    # 매일 새로운 환경에서 돌더라도, 과거 60일치 시세 파일이 있어야 '평균 거래량' 등을 계산함.
+    
+    LOOKBACK_DAYS = 60 # 넉넉하게 60일치
+    (PROJECT_ROOT / "iceage/data/raw").mkdir(parents=True, exist_ok=True)
+
+    print(f"   👉 과거 {LOOKBACK_DAYS}일치 시세 데이터 확인 및 다운로드...")
+    
+    dn_count = 0
+    for i in range(1, LOOKBACK_DAYS + 1):
+        past_date = ref - timedelta(days=i)
+        past_str = past_date.isoformat()
+        
+        filename = f"kr_prices_{past_str}.csv"
+        local_path = PROJECT_ROOT / "iceage/data/raw" / filename
+        s3_path = f"iceage/data/raw/{filename}"
+        
+        # 로컬에 없으면 다운로드 시도
+        if not local_path.exists():
+            # 영업일이 아닐 수도 있으니, 실패해도 조용히 넘어감 (S3에 파일이 없을 수 있음)
+            if s3.download_file(s3_path, str(local_path)):
+                dn_count += 1
+
+    print(f"✅ [S3 Sync] 완료 (신규 다운로드: {dn_count}개)")
     # ====================================================
 
     freeze_hist = os.getenv("FREEZE_HISTORICAL_KR", "1") == "1"
