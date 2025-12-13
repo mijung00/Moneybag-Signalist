@@ -10,17 +10,20 @@ application = Flask(__name__)
 # 🛠️ 공통 함수: 스크립트 실행기 (단발성 뉴스레터용)
 # ==========================================
 def run_script(folder_name, module_path, args=[]):
-    """특정 폴더로 이동해서 모듈을 실행하는 함수"""
+    """특정 폴더의 모듈을 프로젝트 루트에서 실행하는 함수"""
+    # 1. 루트 폴더(Moneybag-Signalist-main)를 기준점으로 잡음
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    target_dir = os.path.join(base_dir, folder_name)
-    # ✅ 수정됨: module_path를 쪼개지 않고 통째로 넣습니다.
-    cmd = [sys.executable, "-m", module_path] + args
     
-    print(f"🚀 [Start Task] {module_path}")
+    # 2. 모듈 경로를 '폴더명.모듈명' 형태로 조합 (예: iceage.src.pipelines.daily_runner)
+    full_module_path = f"{folder_name}.{module_path}"
+    
+    cmd = [sys.executable, "-m", full_module_path] + args
+    
+    print(f"🚀 [Start Task] {full_module_path}")
     
     try:
-        # 단발성 실행이므로 run() 사용 (끝날 때까지 기다림)
-        result = subprocess.run(cmd, cwd=target_dir, capture_output=True, text=True, encoding='utf-8')
+        # 3. cwd(실행 위치)를 폴더 안이 아니라 'base_dir(루트)'로 설정!
+        result = subprocess.run(cmd, cwd=base_dir, capture_output=True, text=True, encoding='utf-8')
         print(f"✅ Output:\n{result.stdout}")
         if result.stderr:
             print(f"⚠️ Error Log:\n{result.stderr}")

@@ -1,16 +1,16 @@
 version: 1
 cron:
-  # 1. [테스트] 시그널리스트 (오늘 밤 22:10 KST 실행)
+  # 1. [테스트] 시그널리스트 (오늘 오전 10:30 KST 실행)
   - name: "signalist_test_run"
     url: "/run_signalist"
-    schedule: "33 13 * * *"
+    schedule: "30 1 * * *"
 
-  # 2. [테스트] 머니백 (오늘 밤 22:35 KST 실행)
+  # 2. [테스트] 머니백 (오늘 오전 11:00 KST 실행)
   - name: "moneybag_test_run"
     url: "/run_moneybag_morning"
-    schedule: "55 13 * * *"
+    schedule: "0 2 * * *"
 
-  # 3. [데이터] KRX 데이터 3일치 강제 갱신 (기존 유지)
+  # 3. [데이터] KRX 데이터 3일치 강제 갱신 (매일 밤 22:00 KST - 기존 유지)
   - name: "update_krx_data"
     url: "/update_stock_data"
     schedule: "0 13 * * *"
