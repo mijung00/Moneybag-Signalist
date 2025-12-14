@@ -9,6 +9,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
 # [젬공의 책략] 경로 설정 & SSL 경고 끄기
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:

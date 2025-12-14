@@ -1,66 +1,75 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
-DAYS="${1:-${DAYS:-3}}"
-DAYS="${DAYS//$'\r'/}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
 
-IS_EB=0
-if [[ -f "/opt/elasticbeanstalk/deployment/env" && -d "/var/app/current" ]]; then
-  IS_EB=1
-fi
+LOG_FILE="${ROOT_DIR}/web.stdout.local.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec >>"$LOG_FILE" 2>&1
 
-if [[ "$IS_EB" -eq 1 ]]; then
-  APP_DIR="/var/app/current"
+echo "[`date`] [Runner] KRX_BATCH start DAYS=${DAYS:-3}"
+
+# 1) AWS(EB) 환경이면 EB env 로드
+if [ -f /opt/elasticbeanstalk/deployment/env ]; then
   set -a
   . /opt/elasticbeanstalk/deployment/env
   set +a
-  PY="$(ls -1 /var/app/venv/*/bin/python 2>/dev/null | head -n 1)"
-  LOG="/var/log/web.stdout.log"
-else
-  APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  PY="$(command -v python || command -v python3)"
-  LOG="${APP_DIR}/web.stdout.local.log"
 fi
 
-cd "$APP_DIR"
-echo "[$(date)] [Runner] KRX_BATCH start DAYS=$DAYS" >> "$LOG"
-echo "[$(date)] [Runner] using PY=${PY}" >> "$LOG"
+# 2) 로컬이면 .env 로드(※ .env는 KEY=VALUE 형태로 “공백 없이” 또는 "따옴표" 필요)
+if [ -f "${ROOT_DIR}/.env" ]; then
+  set -a
+  . "${ROOT_DIR}/.env"
+  set +a
+fi
 
-# ✅ KST 기준으로 (D-2, D-1, D0) 날짜 3개 생성 (오래된 것부터)
-DATES=$("$PY" - <<PY
-from datetime import datetime, timedelta
-try:
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
-except Exception:
-    today = datetime.now().date()
+# 3) 윈도우 콘솔(cp949)에서도 이모지/한글 출력 때문에 죽지 않게
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
 
-days = int("${DAYS}")
-for i in range(days-1, -1, -1):   # 2,1,0
+# 4) 파이썬 선택(로컬 venv 우선)
+if [ -n "${VIRTUAL_ENV:-}" ]; then
+  if [ -x "${VIRTUAL_ENV}/Scripts/python.exe" ]; then
+    PY="${VIRTUAL_ENV}/Scripts/python.exe"
+  else
+    PY="${VIRTUAL_ENV}/bin/python"
+  fi
+else
+  PY="$(command -v python3 || command -v python)"
+fi
+
+echo "[`date`] [Runner] using PY=${PY}"
+
+# 5) 날짜 3개(D, D-1, D-2) 생성(캘린더 기준)
+DAYS="${DAYS:-3}"
+DATE_LIST="$("$PY" - <<'PY'
+from datetime import date, timedelta
+import os
+days=int(os.getenv("DAYS","3"))
+today=date.today()
+for i in range(days):
     print((today - timedelta(days=i)).isoformat())
 PY
-)
+)"
 
-for date_str in $DATES; do
-  echo "=======================================================" >> "$LOG"
-  echo "📅 날짜: ${date_str} 데이터 수집 시작" >> "$LOG"
-  echo "=======================================================" >> "$LOG"
+for d in $DATE_LIST; do
+  echo "======================================================="
+  echo "📅 날짜: $d 데이터 수집 시작"
+  echo "======================================================="
 
-  echo "   [1/3] 종목 리스트 수집 중..." >> "$LOG"
-  # ✅ 여기: 너 기존에 쓰던 1번 collector 실행 줄 그대로 두기
-  "$PY" iceage/src/collectors/krx_listing_collector.py "$date_str" >> "$LOG" 2>&1 || true
+  echo "   [1/3] 종목 리스트 수집 중..."
+  "$PY" -m iceage.src.collectors.krx_listing_collector "$d" || echo "[WARN] listing failed: $d"
 
-  echo "   [2/3] 지수(Index) 수집 중..." >> "$LOG"
-  # ✅ 여기: 너 기존 2번 줄
-  "$PY" iceage/src/collectors/krx_index_collector.py "$date_str" >> "$LOG" 2>&1 || true
+  echo "   [2/3] 지수(Index) 수집 중..."
+  "$PY" -m iceage.src.collectors.krx_index_collector "$d" || echo "[WARN] index failed: $d"
 
-  echo "   [3/3] 일별 시세(Prices) 수집 중..." >> "$LOG"
-  # ✅ 여기: 너 기존 3번 줄 (파일명이 krx_prices_collector.py면 그걸로!)
-  "$PY" iceage/src/collectors/krx_price_collector.py "$date_str" >> "$LOG" 2>&1 || true
+  echo "   [3/3] 일별 시세(Prices) 수집 중..."
+  "$PY" -m iceage.src.collectors.krx_daily_price_collector "$d" || echo "[WARN] price failed: $d"
 
-  echo "   ✅ ${date_str} 완료. API 보호를 위해 3초 대기..." >> "$LOG"
+  echo "   ✅ $d 완료. API 보호를 위해 3초 대기..."
   sleep 3
 done
 
-echo "🎉 모든 KRX 배치 작업 완료!" >> "$LOG"
-echo "[$(date)] [Runner] KRX_BATCH done" >> "$LOG"
+echo "🎉 모든 KRX 배치 작업 완료!"
+echo "[`date`] [Runner] KRX_BATCH done"
