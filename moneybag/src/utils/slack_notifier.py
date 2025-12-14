@@ -4,7 +4,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[3]
+
+# 로컬용
 load_dotenv(BASE_DIR / ".env")
+
+# EB용 (있으면 추가 로드)
+EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
+if EB_ENV.exists():
+    load_dotenv(EB_ENV)
 
 class SlackNotifier:
     def __init__(self):

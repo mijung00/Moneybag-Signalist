@@ -10,6 +10,12 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
 
+
+# EB용 (있으면 추가 로드)
+EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
+if EB_ENV.exists():
+    load_dotenv(EB_ENV)
+
 # 파이프라인 모듈 임포트
 from moneybag.src.pipelines.daily_newsletter import DailyNewsletter
 from moneybag.src.pipelines.generate_cardnews_assets import CardNewsFactory

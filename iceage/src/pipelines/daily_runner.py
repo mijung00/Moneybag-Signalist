@@ -11,6 +11,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
+
+
 from iceage.src.utils.trading_days import (
     TradingCalendar,
     CalendarConfig,
@@ -26,6 +28,12 @@ DATA_DIR = PROJECT_ROOT / "data"
 DATA_RAW = DATA_DIR / "raw"
 DATA_PROCESSED = DATA_DIR / "processed"
 DATA_REF = DATA_DIR / "reference"
+
+
+# EB용 (있으면 추가 로드)
+EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
+if EB_ENV.exists():
+    load_dotenv(EB_ENV)
 
 # 에러 메시지 모아두는 전역 리스트
 ERRORS: list[str] = []

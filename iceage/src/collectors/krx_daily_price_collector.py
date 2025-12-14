@@ -21,6 +21,11 @@ DATA_DIR = PROJECT_ROOT / "data" / "raw"
 # ✅ .env 는 레포 루트에 있다고 가정
 load_dotenv(REPO_ROOT / ".env")
 
+# EB용 (있으면 추가 로드)
+EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
+if EB_ENV.exists():
+    load_dotenv(EB_ENV)
+
 KRX_AUTH_KEY = os.getenv("KRX_AUTH_KEY")
 print(f"[DEBUG] KRX_AUTH_KEY prefix={KRX_AUTH_KEY[:6]}..., length={len(KRX_AUTH_KEY) if KRX_AUTH_KEY else 0}")
 

@@ -24,6 +24,11 @@ load_dotenv(REPO_ROOT / ".env")
 KRX_AUTH_KEY = os.getenv("KRX_AUTH_KEY")
 
 
+# EB용 (있으면 추가 로드)
+EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
+if EB_ENV.exists():
+    load_dotenv(EB_ENV)
+
 KOSPI_BASE_URL = os.getenv(
     "KRX_STK_ISU_BASE_URL",
     "https://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info",

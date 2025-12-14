@@ -17,6 +17,12 @@ if str(PROJECT_ROOT) not in sys.path:
 load_dotenv(PROJECT_ROOT / ".env")
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# EB용 (있으면 추가 로드)
+EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
+if EB_ENV.exists():
+    load_dotenv(EB_ENV)
+
+
 KRX_API_KEY = os.getenv("KRX_AUTH_KEY")
 
 # ---------------------------------------------------------
