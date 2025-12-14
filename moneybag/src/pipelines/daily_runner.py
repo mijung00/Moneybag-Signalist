@@ -152,4 +152,13 @@ def run_routine(mode="morning"):
 if __name__ == "__main__":
     import sys
     mode_arg = sys.argv[1] if len(sys.argv) > 1 else "morning"
+    mode_arg = (mode_arg or "morning").strip().lower()
+    mode_arg = mode_arg.replace("\r", "")
+
+    if mode_arg not in ("morning", "night"):
+        print(f"[Warning] invalid mode='{mode_arg}', fallback to morning")
+        mode_arg = "morning"
+
     run_routine(mode_arg)
+
+

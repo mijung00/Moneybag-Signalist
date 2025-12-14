@@ -1,11 +1,13 @@
 import os
 import requests
 from pathlib import Path
+from common.env_loader import load_env
 
 BASE_DIR = Path(__file__).resolve().parents[3]
+load_env(BASE_DIR)   # 로컬이면 .env 로드, EB면 os.environ 그대로
 
-from common.env_loader import load_env
-load_env(BASE_DIR)
+# 이후 os.getenv("SLACK_WEBHOOK_URL") 사용
+
 
 class SlackNotifier:
     def __init__(self):

@@ -1,25 +1,38 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env bash
+set -e
 
-MODE="${1:-morning}"   # morning | night
+MODE="${1:-morning}"
+MODE="$(echo "$MODE" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
 
-# ✅ EB 환경변수를 "자식 프로세스(파이썬)"까지 전달되게 export
-set -a
-. /opt/elasticbeanstalk/deployment/env
-set +a
+# 1) EB(서버)인지 로컬인지 판별
+if [ -f /opt/elasticbeanstalk/deployment/env ] && [ -d /var/app/current ]; then
+  APP_DIR="/var/app/current"
+  LOG="/var/log/web.stdout.log"
 
-cd /var/app/current
+  # EB env를 "export" 되게 로드 (이게 진짜 중요)
+  set -a
+  . /opt/elasticbeanstalk/deployment/env
+  set +a
 
-# ✅ 파이썬 경로를 "있는 걸로" 안전하게 잡기 (python3.14 같은 하드코딩 금지)
-PY="$(ls -1 /var/app/venv/*/bin/python 2>/dev/null | head -n 1 || true)"
-if [[ -z "${PY}" ]]; then
-  PY="$(command -v python3 || true)"
+  PY="$(ls -1 /var/app/venv/*/bin/python 2>/dev/null | head -n 1)"
+else
+  # 로컬: 이 스크립트가 있는 폴더(레포 루트)로 이동
+  APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+  LOG="$APP_DIR/web.stdout.local.log"
+
+  # 로컬은 venv 활성화 상태의 python을 쓰는 게 제일 안전
+  if command -v python >/dev/null 2>&1; then PY="python"; else PY="python3"; fi
 fi
-if [[ -z "${PY}" ]]; then
-  echo "[ERROR] python not found" >&2
-  exit 1
-fi
 
-echo "[$(date -u)] [Runner] MONEYBAG mode=${MODE} start" >> /var/log/web.stdout.log
-"${PY}" -m moneybag.src.pipelines.daily_runner "${MODE}" >> /var/log/web.stdout.log 2>&1
-echo "[$(date -u)] [Runner] MONEYBAG mode=${MODE} done" >> /var/log/web.stdout.log
+# 윈도우(특히 cp949) 콘솔에서 이모지/한글 출력 깨지는 것 방지
+export PYTHONUTF8=1
+export PYTHONIOENCODING=UTF-8
+
+cd "$APP_DIR"
+
+echo "[$(date)] [Runner] MONEYBAG mode=$MODE start" >> "$LOG"
+echo "[$(date)] [Runner] using PY=$PY" >> "$LOG"
+
+"$PY" -m moneybag.src.pipelines.daily_runner "$MODE" >> "$LOG" 2>&1
+
+echo "[$(date)] [Runner] MONEYBAG mode=$MODE done" >> "$LOG"
