@@ -8,9 +8,6 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from dotenv import load_dotenv
-load_dotenv()
-
 
 
 from iceage.src.utils.trading_days import (
@@ -30,10 +27,11 @@ DATA_PROCESSED = DATA_DIR / "processed"
 DATA_REF = DATA_DIR / "reference"
 
 
-# EB용 (있으면 추가 로드)
-EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
-if EB_ENV.exists():
-    load_dotenv(EB_ENV)
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT))
+
+from common.env_loader import load_env
+load_env(REPO_ROOT)
 
 # 에러 메시지 모아두는 전역 리스트
 ERRORS: list[str] = []

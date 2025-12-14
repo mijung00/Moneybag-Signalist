@@ -1,9 +1,17 @@
-#!/bin/bash
-# 1. 환경 변수 불러오기 (가장 중요!)
-. /opt/elasticbeanstalk/deployment/env
+#!/usr/bin/env bash
+set -euo pipefail
 
-# 2. 프로젝트 폴더로 이동
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export PYTHONIOENCODING=utf-8
+
+if [ -f /opt/elasticbeanstalk/deployment/env ]; then
+  set -a
+  . /opt/elasticbeanstalk/deployment/env
+  set +a
+fi
+
 cd /var/app/current
+MODE="${1:-morning}"
 
-# 3. 파이썬 실행 (뒤에 $1을 붙여서 모드(morning/night/krx 등)를 받을 수 있게 함)
-/var/app/venv/*/bin/python -m iceage.src.pipelines.daily_runner $1 >> /var/log/web.stdout.log 2>&1
+"/var/app/venv/"*/bin/python -m iceage.src.pipelines.daily_runner "$MODE" >> /var/log/web.stdout.log 2>&1

@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from dotenv import load_dotenv
 
-# ✅ 항상 .env를 확실히 읽어오도록 경로를 명시
-PROJECT_ROOT = Path(__file__).resolve().parents[2]  # C:\project
-load_dotenv(PROJECT_ROOT / ".env")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT))
+
+from common.env_loader import load_env
+load_env(REPO_ROOT)
 
 
 def send_slack_message(text: str, username: Optional[str] = None) -> None:

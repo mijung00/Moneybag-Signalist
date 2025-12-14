@@ -29,6 +29,16 @@ EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
 if EB_ENV.exists():
     load_dotenv(EB_ENV)
 
+
+def _get_krx_key():
+    return os.getenv("KRX_AUTH_KEY") or os.getenv("KRX_AUTH_KEY".replace("AUTH_", ""))  # 필요시만
+
+def _ensure_auth():
+    key = _get_krx_key()
+    if not key:
+        raise RuntimeError("KRX_AUTH_KEY가 설정되어 있지 않습니다.")
+    return key
+
 KOSPI_BASE_URL = os.getenv(
     "KRX_STK_ISU_BASE_URL",
     "https://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info",

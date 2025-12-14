@@ -3,6 +3,14 @@
 # [Iceage] KRX 데이터 3종 세트 3일치 수집 스크립트
 # -------------------------------------------------------------
 
+if [ -f /opt/elasticbeanstalk/deployment/env ]; then
+  set -a
+  . /opt/elasticbeanstalk/deployment/env
+  set +a
+fi
+
+
+
 # 1. 환경 변수 로드 (필수!)
 . /opt/elasticbeanstalk/deployment/env
 

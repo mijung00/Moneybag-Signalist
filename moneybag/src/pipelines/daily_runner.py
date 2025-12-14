@@ -3,18 +3,13 @@ import time
 import os
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
 # 경로 설정
 BASE_DIR = Path(__file__).resolve().parents[3]
-sys.path.append(str(BASE_DIR))
-load_dotenv(BASE_DIR / ".env")
+sys.path.insert(0, str(BASE_DIR))
 
-
-# EB용 (있으면 추가 로드)
-EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
-if EB_ENV.exists():
-    load_dotenv(EB_ENV)
+from common.env_loader import load_env
+load_env(BASE_DIR)
 
 # 파이프라인 모듈 임포트
 from moneybag.src.pipelines.daily_newsletter import DailyNewsletter
