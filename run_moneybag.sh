@@ -1,38 +1,87 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 MODE="${1:-morning}"
 MODE="$(echo "$MODE" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
 
-# 1) EB(서버)인지 로컬인지 판별
 if [ -f /opt/elasticbeanstalk/deployment/env ] && [ -d /var/app/current ]; then
   APP_DIR="/var/app/current"
   LOG="/var/log/web.stdout.log"
-
-  # EB env를 "export" 되게 로드 (이게 진짜 중요)
-  set -a
-  . /opt/elasticbeanstalk/deployment/env
-  set +a
-
-  PY="$(ls -1 /var/app/venv/*/bin/python 2>/dev/null | head -n 1)"
 else
-  # 로컬: 이 스크립트가 있는 폴더(레포 루트)로 이동
   APP_DIR="$(cd "$(dirname "$0")" && pwd)"
   LOG="$APP_DIR/web.stdout.local.log"
-
-  # 로컬은 venv 활성화 상태의 python을 쓰는 게 제일 안전
-  if command -v python >/dev/null 2>&1; then PY="python"; else PY="python3"; fi
 fi
 
-# 윈도우(특히 cp949) 콘솔에서 이모지/한글 출력 깨지는 것 방지
+cd "$APP_DIR"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+touch "$LOG" 2>/dev/null || true
+exec >>"$LOG" 2>&1
+
+# env 로드
+if [ -f /opt/elasticbeanstalk/deployment/env ]; then
+  set -a; . /opt/elasticbeanstalk/deployment/env; set +a
+fi
+if [ -f "$APP_DIR/.env" ]; then
+  set -a; . "$APP_DIR/.env"; set +a
+fi
+
+# Secrets bootstrap
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
+
+fetch_secret () {
+  local sid="$1"
+  aws secretsmanager get-secret-value --secret-id "$sid" --query SecretString --output text 2>/dev/null || true
+}
+
+extract_json_value () {
+  python3 - <<'PY' "$1" "$2"
+import json, sys
+k = sys.argv[1]
+s = sys.argv[2]
+try:
+    if s.strip().startswith("{"):
+        d = json.loads(s)
+        v = d.get(k) or d.get("value") or ""
+        print(v if v else s)
+    else:
+        print(s)
+except Exception:
+    print(s)
+PY
+}
+
+ensure_secret_env () {
+  local k="$1"
+  local v="${!k-}"
+  if [[ -n "$v" && "$v" != arn:aws:secretsmanager* ]]; then return 0; fi
+
+  local sid="$k"
+  if [[ "$v" == arn:aws:secretsmanager* ]]; then sid="$v"; fi
+
+  local s
+  s="$(fetch_secret "$sid")"
+  if [[ -z "$s" || "$s" == "None" ]]; then s="$(fetch_secret "$k")"; fi
+  if [[ -z "$s" || "$s" == "None" ]]; then echo "[WARN] secret not loaded: $k"; return 0; fi
+
+  s="$(extract_json_value "$k" "$s")"
+  export "$k=$s"
+}
+
+for k in OPENAI_API_KEY SENDGRID_API_KEY SERPAPI_KEY \
+         TELEGRAM_BOT_TOKEN_MONEYBAG SLACK_WEBHOOK_URL DB_PASSWORD
+do
+  ensure_secret_env "$k"
+done
+
 export PYTHONUTF8=1
 export PYTHONIOENCODING=UTF-8
 
-cd "$APP_DIR"
+PY="$(ls -1 /var/app/venv/*/bin/python 2>/dev/null | head -n 1 || true)"
+if [ -z "${PY:-}" ]; then PY="$(command -v python3 || command -v python)"; fi
 
-echo "[$(date)] [Runner] MONEYBAG mode=$MODE start" >> "$LOG"
-echo "[$(date)] [Runner] using PY=$PY" >> "$LOG"
+echo "[$(date)] [Runner] MONEYBAG mode=$MODE start"
+echo "[$(date)] [Runner] using PY=$PY"
 
-"$PY" -m moneybag.src.pipelines.daily_runner "$MODE" >> "$LOG" 2>&1
+"$PY" -m moneybag.src.pipelines.daily_runner "$MODE"
 
-echo "[$(date)] [Runner] MONEYBAG mode=$MODE done" >> "$LOG"
+echo "[$(date)] [Runner] MONEYBAG mode=$MODE done"
