@@ -8,4 +8,4 @@
 cd /var/app/current
 
 # 3. 파이썬 실행
-/var/app/venv/*/bin/python3.14 -m moneybag.src.pipelines.daily_runner morning >> /var/log/web.stdout.log 2>&1
+/var/app/venv/*/bin/python -m moneybag.src.pipelines.daily_runner morning >> /var/log/web.stdout.log 2>&1

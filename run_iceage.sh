@@ -6,4 +6,4 @@
 cd /var/app/current
 
 # 3. 파이썬 실행 (뒤에 $1을 붙여서 모드(morning/night/krx 등)를 받을 수 있게 함)
-/var/app/venv/*/bin/python3.14 -m iceage.src.pipelines.daily_runner $1 >> /var/log/web.stdout.log 2>&1
+/var/app/venv/*/bin/python -m iceage.src.pipelines.daily_runner $1 >> /var/log/web.stdout.log 2>&1
