@@ -8,8 +8,6 @@ Signalist_Daily_YYYY-MM-DD.md -> HTML 이메일 템플릿 렌더러
     # 인자를 안 주면 오늘 날짜 기준으로 시도
 """
 
-
-
 import os
 import sys
 import datetime as dt
@@ -29,16 +27,20 @@ def _get_newsletter_env_suffix() -> str:
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
     if env in ("", "prod"):
         return ""
-    return f"_{env}"
+    # [수정] 파일명이 2025-12-12-dev.md 형식이므로 언더바(_)가 아니라 하이픈(-)이어야 함
+    return f"-{env}"
 
 
 def render_markdown_to_html(ref_date: str) -> Path:
     suffix = _get_newsletter_env_suffix()
 
+    # [수정] 변수명에 하이픈(-) 사용 불가 -> 언더바(_)로 변경
     md_path = OUT_DIR / f"Signalist_Daily_{ref_date}{suffix}.md"
+    
     if not md_path.exists():
         raise FileNotFoundError(f"Markdown 파일을 찾을 수 없습니다: {md_path}")
 
+    # [수정] 변수명 변경 (md-text -> md_text)
     md_text = md_path.read_text(encoding="utf-8")
 
     # 표 / 리스트 / 코드블럭 등을 잘 렌더하기 위해 확장 사용
