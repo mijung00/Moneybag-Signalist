@@ -49,7 +49,7 @@ def _get_newsletter_env_suffix() -> str:
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
     if env in ("", "prod"):
         return ""
-    return f"_{env}"
+    return f"-{env}"
 
 # 1. LLM에게 보낼 재료를 풍성하게 만드는 함수
 def _build_llm_payload(ref_date: str) -> dict:
