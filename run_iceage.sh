@@ -68,7 +68,7 @@ ensure_secret_env () {
 }
 
 # iceage가 쓰는 것들(필요하면 늘려)
-for k in KRX_AUTH_KEY SERPAPI_KEY OPENAI_API_KEY SLACK_WEBHOOK_URL DB_PASSWORD
+for k in KRX_AUTH_KEY SERPAPI_KEY OPENAI_API_KEY SLACK_WEBHOOK_URL DB_PASSWORD SENDGRID_API_KEY NEWSLETTER_AUTO_SEND
 do
   ensure_secret_env "$k"
 done

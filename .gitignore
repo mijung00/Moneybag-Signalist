@@ -61,3 +61,8 @@ moneybag/*.log
 
 # 설정 파일은 예외적으로 허용
 !iceage/configs/**/*.json
+
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
