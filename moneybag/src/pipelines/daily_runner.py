@@ -54,8 +54,9 @@ def run_routine(mode="morning"):
     card_factory = CardNewsFactory()
     email_sender = EmailSender()
     
-    # 파일 경로 미리 계산 (저장될 경로)
-    today_str = datetime.now().strftime("%Y.%m.%d")
+    # 👇 [수정] 한국 시간(KST) 기준으로 날짜를 뽑도록 변경!
+    now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+    today_str = now_kst.strftime("%Y.%m.%d")
     filename = f"SecretNote_{mode.capitalize()}_{today_str}.md"
     file_path = BASE_DIR / "moneybag" / "data" / "out" / filename
     
@@ -112,7 +113,8 @@ def run_routine(mode="morning"):
         # [수정] 명확한 메서드 호출 (파일 경로 전달)
         # EmailSender의 메서드가 send()라고 가정합니다. 
         # 만약 send_email()이라면 그에 맞춰 수정해주세요.
-        email_sender.send(str(file_path)) 
+        # daily_runner.py
+        email_sender.send(str(file_path), mode=mode)
         
         print(f"✅ [Moneybag] **{mode.upper()}** 시크릿 노트 발송 완료! 📧")
         

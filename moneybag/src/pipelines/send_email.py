@@ -140,12 +140,13 @@ class EmailSender:
         return styled_html
 
     # 👇 [추가] 이 위치에 save_html 함수를 그대로 붙여넣으세요.
-    def save_html(self, html_content, date_str):
-        """HTML 파일로 저장"""
+    def save_html(self, html_content, date_str, mode="morning"):
         try:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            filename = f"Moneybag_Letter_{date_str}.html"
+            # 👇 파일명에 mode(Morning/Night)가 들어가도록 수정!
+            filename = f"Moneybag_Letter_{mode.capitalize()}_{date_str}.html"
             file_path = OUTPUT_DIR / filename
+        
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
             print(f"💾 [Save] HTML 저장 완료: {file_path}")
@@ -156,7 +157,7 @@ class EmailSender:
 
 
 
-    def send(self, file_path):
+    def send(self, file_path, mode="morning"):
         if not self.api_key: 
             print("❌ SendGrid API Key가 없습니다.")
             return
@@ -179,7 +180,7 @@ class EmailSender:
         
         # 👇 [추가] HTML 내용을 파일로 저장하는 명령
         today_str = datetime.now().strftime("%Y-%m-%d")
-        self.save_html(html_content, today_str)
+        self.save_html(html_content, today_str, mode)
         
         subject = f"[Secret Note] 🐋 {headline}"
 
