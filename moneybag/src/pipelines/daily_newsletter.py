@@ -150,7 +150,7 @@ class DailyNewsletter:
         print(f"🚀 [{mode.upper()}] 웨일 헌터가 데이터를 분석 중입니다...")
         
         # 0. 데이터 준비 (BTC 기준)
-        ohlcv = self.price_collector.binance.fetch_ohlcv("BTC/USDT", '1d', limit=210)
+        ohlcv = self.price_collector.binance.fetch_ohlcv("BTC/USDT", '1d', limit=1000)
         if not ohlcv:
             print("❌ BTC 데이터 수집 실패")
             return
