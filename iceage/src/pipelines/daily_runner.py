@@ -8,6 +8,8 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from zoneinfo import ZoneInfo
+now = datetime.now(ZoneInfo("Asia/Seoul"))
 
 
 from iceage.src.utils.trading_days import (

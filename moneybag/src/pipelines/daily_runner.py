@@ -3,6 +3,10 @@ import time
 import os
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+now = datetime.now(ZoneInfo("Asia/Seoul"))
+
+
 
 # 경로 설정
 BASE_DIR = Path(__file__).resolve().parents[3]
