@@ -50,152 +50,58 @@ class DailyNewsletter:
         empty = 10 - filled
         bar = (color * filled) + ("▪️" * empty)
         return f"{icon} **{value}** {bar}"
-    @staticmethod
-    def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-        """Wilder RSI (Series 반환)."""
-        delta = close.diff()
-        gain = delta.clip(lower=0)
-        loss = -delta.clip(upper=0)
 
-        avg_gain = gain.ewm(alpha=1/period, adjust=False, min_periods=period).mean()
-        avg_loss = loss.ewm(alpha=1/period, adjust=False, min_periods=period).mean()
-
-        rs = avg_gain / avg_loss.replace(0, np.nan)
-        rsi = 100 - (100 / (1 + rs))
-        return rsi.bfill()
-
-    @staticmethod
-    def _realized_vol(close: pd.Series, window: int = 20) -> pd.Series:
-        """연환산 실현변동성 (log return)."""
-        ret = np.log(close / close.shift(1))
-        return ret.rolling(window).std() * np.sqrt(365)
-
-    def determine_regime(self, symbol: str = "BTC/USDT", kimp=None, funding_rate=None) -> dict:
-        """
-        Regime v3: 더 '흔들리는' 2단계 레짐.
-        - Macro: RISK_ON / RANGE / RISK_OFF / CRISIS
-        - Condition: NORMAL / OVERHEATED / OVERSOLD / VOL_SPIKE / SHOCK / DEFENSIVE
-        dict 반환: prompt용 문자열(main/sub) + backtester용 키(bt_regime/condition) + 지표(metrics).
-        """
+    def determine_regime(self, symbol="BTC/USDT"):
         try:
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe="1d", limit=240)
-            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-            close = df["close"].astype(float)
+            ohlcv = self.price_collector.binance.fetch_ohlcv(symbol, '1d', limit=210)
+            if not ohlcv: return "UNKNOWN", 0, 0
+            df = pd.DataFrame(ohlcv, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+            current_price = df.iloc[-1]['c']
+            ma200 = df['c'].rolling(window=200).mean().iloc[-1]
+            ma50 = df['c'].rolling(window=50).mean().iloc[-1]
+            if pd.isna(ma200): return "UNKNOWN", current_price, 0
+            
+            # 5단계 메인 국면
+            if current_price > ma50 and ma50 > ma200: regime = "STRONG_BULL"
+            elif ma50 > current_price and current_price > ma200: regime = "WEAK_BULL"
+            elif ma200 > ma50 and ma50 > current_price: regime = "STRONG_BEAR"
+            elif ma200 > current_price and current_price > ma50: regime = "WEAK_BEAR"
+            else: regime = "SIDEWAYS"
+            return regime, current_price, ma200
+        except: return "UNKNOWN", 0, 0
 
-            current_price = float(close.iloc[-1])
-            ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else float(close.rolling(60).mean().iloc[-1])
+    # [서브 국면 판독기] - 날씨 판단
+    def get_sub_regime(self, symbol="BTC/USDT", main_regime="SIDEWAYS"):
+        try:
+            ohlcv = self.price_collector.binance.fetch_ohlcv(symbol, '1d', limit=20)
+            df = pd.DataFrame(ohlcv, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+            
+            last = df.iloc[-1]
+            vol_ratio = last['v'] / df['v'].mean()
+            
+            # RSI 계산 (간이)
+            delta = df['c'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = (100 - (100 / (1 + rs))).iloc[-1]
+            
+            sub_regime = "NORMAL"
+            
+            # 과열/침체
+            if rsi > 70: sub_regime = "🔥 OVERHEATED (과열)"
+            elif rsi < 30: sub_regime = "🩸 PANIC_SELL (투매)"
+            
+            # 캔들 패턴
+            if "BEAR" in main_regime and last['c'] > last['o'] and vol_ratio > 1.5 and rsi > 50:
+                sub_regime = "🔨 DEAD_CAT (데드캣)"
+            if "BULL" in main_regime and last['c'] < last['o'] and vol_ratio < 0.8 and rsi < 50:
+                sub_regime = "📉 DIP (눌림목)"
+            if vol_ratio < 0.5 and abs(last['c'] - last['o']) / last['o'] < 0.01:
+                sub_regime = "💤 DRY_OUT (소강)"
 
-            # 빠른 지표들 (변화가 더 잦아짐)
-            ema10 = close.ewm(span=10, adjust=False).mean()
-            ema30 = close.ewm(span=30, adjust=False).mean()
-
-            trend = float((ema10.iloc[-1] - ema30.iloc[-1]) / ema30.iloc[-1])
-            ret3 = float(close.pct_change(3).iloc[-1])
-            ret14 = float(close.pct_change(14).iloc[-1])
-            dd60 = float(current_price / float(close.rolling(60).max().iloc[-1]) - 1) if len(close) >= 60 else 0.0
-
-            vol7 = float(self._realized_vol(close, 7).iloc[-1]) if len(close) >= 8 else 0.0
-            vol30 = float(self._realized_vol(close, 30).iloc[-1]) if len(close) >= 31 else max(vol7, 1e-9)
-            vol_ratio = float(vol7 / (vol30 + 1e-9))
-
-            rsi14 = float(self._compute_rsi(close, 14).iloc[-1]) if len(close) >= 15 else 50.0
-
-            # ---- Macro 레짐 ----
-            if dd60 < -0.15 or vol_ratio > 1.7:
-                macro = "CRISIS"
-            else:
-                if trend > 0.012 and ret14 > 0:
-                    macro = "RISK_ON"
-                elif trend < -0.012 and ret14 < 0:
-                    macro = "RISK_OFF"
-                else:
-                    macro = "RANGE"
-
-            # ---- Micro/Condition ----
-            micro, condition = self.get_sub_regime(
-                df=df,
-                macro_regime=macro,
-                rsi14=rsi14,
-                vol_ratio=vol_ratio,
-                ret3=ret3,
-                kimp=kimp,
-                funding_rate=funding_rate,
-            )
-
-            metrics = {
-                "trend(ema10-ema30)": trend,
-                "ret3": ret3,
-                "ret14": ret14,
-                "dd60": dd60,
-                "rsi14": rsi14,
-                "vol7": vol7,
-                "vol30": vol30,
-                "vol_ratio": vol_ratio,
-                "kimp": kimp,
-                "funding_rate": funding_rate,
-            }
-
-            return {
-                "main_regime": macro,
-                "sub_regime": micro,
-                "bt_regime": macro,
-                "condition": condition,
-                "current_price": current_price,
-                "ma200": ma200,
-                "df": df,
-                "metrics": metrics,
-            }
-
-        except Exception as e:
-            print(f"레짐 분석 실패: {e}")
-            return {
-                "main_regime": "RANGE",
-                "sub_regime": "중립(Normal)",
-                "bt_regime": "RANGE",
-                "condition": "NORMAL",
-                "current_price": None,
-                "ma200": None,
-                "df": None,
-                "metrics": {},
-            }
-
-    def get_sub_regime(self, df, macro_regime, rsi14, vol_ratio, ret3, kimp=None, funding_rate=None):
-        """
-        Micro regime/condition을 '자주' 변하도록 설계:
-        우선순위: SHOCK > VOL_SPIKE > OVERHEATED/OVERSOLD > (CRISIS)DEFENSIVE > NORMAL
-        """
-        if abs(ret3) >= 0.08:
-            return "급변(Shock)", "SHOCK"
-
-        if vol_ratio >= 1.45:
-            return "변동성 폭증(Vol Spike)", "VOL_SPIKE"
-
-        overheat = (rsi14 >= 72)
-        oversold = (rsi14 <= 28)
-
-        if funding_rate is not None:
-            if funding_rate >= 0.02:
-                overheat = True
-            if funding_rate <= -0.01:
-                oversold = True
-
-        if kimp is not None:
-            if kimp >= 2.0:
-                overheat = True
-            if kimp <= -1.0:
-                oversold = True
-
-        if overheat:
-            return "과열(Overheated)", "OVERHEATED"
-        if oversold:
-            return "과매도(Oversold)", "OVERSOLD"
-
-        if macro_regime == "CRISIS":
-            return "경계(Defensive)", "DEFENSIVE"
-
-        return "중립(Normal)", "NORMAL"
-
+            return sub_regime
+        except: return "NORMAL"
 
     def determine_market_condition(self, symbol="BTC/USDT"):
         try:
@@ -294,13 +200,8 @@ class DailyNewsletter:
     def generate(self, mode="morning"):
         print(f"🚀 [{mode.upper()}] 웨일 헌터가 데이터를 분석 중입니다...")
         
-        reg_info = self.determine_regime("BTC/USDT")
-            regime = reg_info.get("main_regime")
-            sub_regime = reg_info.get("sub_regime")
-            bt_regime = reg_info.get("bt_regime")
-            condition = reg_info.get("condition")
-            curr_p = reg_info.get("current_price")
-            ma200 = reg_info.get("ma200")
+        regime, curr_p, ma200 = self.determine_regime("BTC/USDT")
+        sub_regime = self.get_sub_regime("BTC/USDT", regime)
         
         print(f"🧐 현재 시장 국면: {regime} ({sub_regime})")
 
@@ -313,38 +214,39 @@ class DailyNewsletter:
             headline_instruction = f"⚠️ [긴급] BTC {change_rate}% {type_str}! 원인과 대응책을 제목으로 뽑아라."
 
         # 1. 백테스트 실행
-        # (regime/condition은 determine_regime()에서 이미 계산됨)
-
+        simple_regime = "BULL" if "BULL" in regime else "BEAR"
+        # 특이 국면일 경우 해당 전략 우선 검토
+        condition = "NORMAL"
+        if "PANIC" in sub_regime: condition = "RSI_OVERSOLD"
+        elif "DEAD_CAT" in sub_regime: condition = "RSI_OVERBOUGHT"
+        elif "DIP" in sub_regime: condition = "RSI_OVERSOLD"
+        
         # 백테스트 결과 받기
-        backtest_report, backtest_comment, best_strat_info, simulation_results, strategy_summary = self.backtester.run_multi_strategy_test("BTC/USDT", bt_regime, condition=condition)
+        backtest_report, backtest_comment, best_strat_info = self.backtester.run_multi_strategy_test("BTC/USDT", simple_regime)
+        
         # best_strat_info 예시: "📉 투매 줍기 (LONG)"
         best_strat_name = best_strat_info.split("(")[0].strip()
         best_strat_pos = "LONG" if "LONG" in best_strat_info else "SHORT"
 
         # 2. [중요] 동적 교리(Dynamic Doctrine) 생성
-        # - 이제 레짐이 BULL/BEAR가 아니라 RISK_ON/RANGE/RISK_OFF/CRISIS로 나옵니다.
-        # - 여기서 '시장 분위기'만 다시 한 번 간단히 추려서 문장 톤을 정합니다.
-        market_bias = "RANGE"
-        if bt_regime in ["RISK_ON"]:
-            market_bias = "BULL"
-        elif bt_regime in ["RISK_OFF", "CRISIS"]:
-            market_bias = "BEAR"
-
-        best_strat_pos = self.backtester.strategies[best_strat_name]["position"]
-
-        if market_bias == "BEAR":
+        # 국면(Trend)과 전략(Signal)이 일치하는지, 엇갈리는지 판단
+        doctrine = ""
+        conflict_mode = False
+        
+        if "BEAR" in regime:
             if best_strat_pos == "SHORT":
-                dynamic_doctrine = f"지금은 **방어 우선(리스크 오프)** 구간. *{best_strat_name}*처럼 **하락에 반응하는 포지션**이 유리해."
-            else:
-                dynamic_doctrine = f"지금은 **방어 우선(리스크 오프)** 구간이지만, *{best_strat_name}*은 **반등/리스크 관리형 접근**으로 해석해."
-        elif market_bias == "RANGE":
-            dynamic_doctrine = f"지금은 **횡보/혼조(RANGE)** 성격이 강해. *{best_strat_name}*처럼 **짧게 먹고 빠지는/역추세/구간매매** 전략이 빛날 수 있어."
-        else:
-            # BULL
-            dynamic_doctrine = f"지금은 **리스크 온(상승 우위)** 구간. *{best_strat_name}*처럼 **추세를 타는 전략**이 유리해."
+                doctrine = f"현재는 **하락장({regime})**이고, 통계적 승률도 **숏(Short)**을 가리킨다. **추세를 따라가는 매매**가 정석이다. 반등 시 과감하게 매도해라."
+            else: # 하락장인데 롱 전략이 나옴
+                conflict_mode = True
+                doctrine = f"현재는 **하락장({regime})**이지만, 단기적으로 과매도 구간에 진입했다. 통계적으로 **기술적 반등(Long)** 승률이 더 높다. **'짧게 먹고 빠지는 역추세 매매'**로 대응해라."
+        else: # BULL
+            if best_strat_pos == "LONG":
+                doctrine = f"현재는 **상승장({regime})**이고, 전략도 **롱(Long)**이다. 추세가 강력하다. 조정은 매수 기회다."
+            else: # 상승장인데 숏 전략이 나옴
+                conflict_mode = True
+                doctrine = f"현재는 **상승장({regime})**이지만, 단기 과열 신호가 떴다. **리스크 관리(Short Hedge)**가 필요하다. 추세가 꺾이기 전까지는 보수적으로 접근해라."
 
         # 3. 데이터 수집
-
         major_table = self.get_market_metrics(self.targets["Major"])
         meme_table = self.get_market_metrics(self.targets["Meme"])
         tactical_table = self.get_tactical_map(self.targets["Major"])
@@ -424,12 +326,7 @@ class DailyNewsletter:
         ## 5. 최종 결론 (The Verdict)
         - **상황 판단:** (현재 시장 국면과 데이터를 종합하여 3줄 이내로 상황을 브리핑해줘.)
         **🔥 오늘의 추천 전략 Top 3 (골라 드세요)**
-        (위 '3. 전술 시뮬레이션' 표를 보고 **서로 성격/목적이 다른** 전략 3개를 골라 아래 양식으로 작성해.
-        규칙:
-        - 1번: 승률(WinRate) 상위권에서 1개
-        - 2번: 수익/기대값(총수익, 기대수익, ProfitFactor 등) 상위권에서 1개 (1번과 다른 전략)
-        - 3번: 리스크(최대낙폭 MDD, 변동성 등) 관점에서 가장 방어적인 1개 (1-2번과 다른 전략)
-        - 가능하면 [추세추종/역추세/변동성대응] 같은 태그를 붙이고, 같은 태그 중복을 피해야 해.)
+        (위 '3. 전술 시뮬레이션' 표에서 승률 상위 3개 전략을 선정하여 아래 양식으로 작성해. 전략의 성격은 네가 판단해서 [안전형/공격형/역추세] 등의 태그를 달아.)
         **1. [성격태그] 📉 전략명 (Position)**
            - "한 줄 매력 어필 (예: 남들이 공포에 떨 때 줍줍!)"
            - 가이드: (진입/청산/손절 내용 요약)       
