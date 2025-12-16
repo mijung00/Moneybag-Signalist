@@ -3,50 +3,206 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>핀코어 구독 신청</title>
+    <title>Fincore - 데이터 기반 투자 리포트</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* 체크박스 선택 시 카드 스타일 변경 */
+        .service-checkbox:checked + div {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1);
+        }
+        .service-checkbox:checked + div .check-icon {
+            display: block;
+        }
+        body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; }
+    </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<body class="bg-gray-50 text-gray-800">
 
-    <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
-        <h1 class="text-2xl font-bold text-center text-blue-600 mb-6">🐋 FINCORE 뉴스레터</h1>
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-chart-line text-blue-600 text-2xl"></i>
+                <span class="text-xl font-black tracking-tight text-gray-900">FINCORE</span>
+            </div>
+            <a href="#subscribe" class="text-sm font-bold text-blue-600 hover:text-blue-800">구독하기</a>
+        </div>
+    </header>
+
+    <div class="max-w-3xl mx-auto px-6 py-10">
         
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="mb-4">
-                {% for category, message in messages %}
-                    <div class="p-3 rounded text-white text-center font-bold 
-                        {{ 'bg-green-500' if category == 'success' else 'bg-red-500' if category == 'error' else 'bg-yellow-500' }}">
-                        {{ message }}
-                    </div>
-                {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
+        <div class="text-center mb-10">
+            <h1 class="text-3xl font-bold mb-3">당신의 투자를 깨우는 아침과 저녁</h1>
+            <p class="text-gray-500">데이터가 검증한 전략, 감정을 배제한 시그널을 받아보세요.</p>
+        </div>
 
-        <form action="/" method="POST" class="space-y-4">
-            <div>
-                <label class="block text-gray-700 text-sm font-bold mb-2">이메일 주소</label>
-                <input type="email" name="email" required placeholder="example@email.com"
-                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <div class="grid md:grid-cols-2 gap-6 mb-12">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4 text-blue-600">
+                    <i class="fa-solid fa-building-columns text-xl"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">📈 Signalist</h3>
+                <p class="text-sm text-blue-600 font-semibold mb-3">국내 주식 (KOSPI/KOSDAQ)</p>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    KRX 전체 데이터를 분석하여 수급 이상 징후와 저평가 우량주를 발굴합니다. 매일 아침 7시, 시장의 핵심을 짚어드립니다.
+                </p>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4 text-orange-600">
+                    <i class="fa-brands fa-bitcoin text-xl"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">🐋 Secret Note</h3>
+                <p class="text-sm text-orange-600 font-semibold mb-3">암호화폐 (Crypto)</p>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    고래들의 지갑 움직임과 김치프리미엄을 추적합니다. 아침/저녁 하루 2회, 변동성에 대응하는 최적의 전략을 제시합니다.
+                </p>
+            </div>
+        </div>
+
+        <div id="subscribe" class="bg-white p-8 rounded-3xl shadow-lg border border-gray-100 mb-16">
+            <h2 class="text-2xl font-bold mb-6 text-center">무료 뉴스레터 구독신청</h2>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="mb-6">
+                    {% for category, message in messages %}
+                        <div class="p-4 rounded-lg text-sm font-medium text-center
+                            {{ 'bg-green-100 text-green-700' if category == 'success' else 'bg-red-100 text-red-700' }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <form action="/" method="POST">
+                <div class="space-y-4 mb-6">
+                    <label class="block font-bold text-gray-700 text-sm">받아보실 리포트 선택 (중복 가능)</label>
+                    
+                    <label class="relative cursor-pointer group">
+                        <input type="checkbox" name="services" value="signalist" class="service-checkbox sr-only" checked>
+                        <div class="flex items-center p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+                            <div class="flex-1">
+                                <span class="block font-bold text-gray-800">Signalist (주식)</span>
+                                <span class="text-xs text-gray-500">매일 아침 07:00 발송</span>
+                            </div>
+                            <div class="check-icon hidden text-blue-600">
+                                <i class="fa-solid fa-circle-check text-xl"></i>
+                            </div>
+                        </div>
+                    </label>
+
+                    <label class="relative cursor-pointer group">
+                        <input type="checkbox" name="services" value="moneybag" class="service-checkbox sr-only" checked>
+                        <div class="flex items-center p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+                            <div class="flex-1">
+                                <span class="block font-bold text-gray-800">Secret Note (코인)</span>
+                                <span class="text-xs text-gray-500">매일 아침 07:30 / 저녁 20:00 발송</span>
+                            </div>
+                            <div class="check-icon hidden text-blue-600">
+                                <i class="fa-solid fa-circle-check text-xl"></i>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="space-y-4 mb-8">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">이메일 주소</label>
+                        <input type="email" name="email" required placeholder="name@example.com"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">닉네임 (선택)</label>
+                        <input type="text" name="name" placeholder="리포트에 표시될 이름"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+                </div>
+
+                <div class="mb-6 border-t border-gray-100 pt-4">
+                    <label class="flex items-start space-x-3 cursor-pointer">
+                        <input type="checkbox" name="agree_terms" required class="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300">
+                        <span class="text-xs text-gray-500 leading-tight">
+                            (필수) 개인정보 수집 및 이용, 뉴스레터 발송을 위한 정보 활용에 동의합니다. 
+                            본 서비스는 투자 정보 제공을 목적으로 하며, 투자의 책임은 본인에게 있습니다.
+                        </span>
+                    </label>
+                    <details class="mt-2 text-xs text-gray-400">
+                        <summary class="cursor-pointer hover:text-gray-600">약관 자세히 보기</summary>
+                        <div class="p-3 bg-gray-100 rounded mt-2 leading-relaxed">
+                            <strong>1. 수집 목적:</strong> 뉴스레터 발송 및 관리<br>
+                            <strong>2. 수집 항목:</strong> 이메일 주소, 닉네임<br>
+                            <strong>3. 보유 기간:</strong> 구독 해지 시까지<br>
+                            <strong>4. 면책 조항:</strong> Fincore의 모든 리포트는 알고리즘에 의한 분석 자료이며, 실제 수익을 보장하지 않습니다.
+                        </div>
+                    </details>
+                </div>
+
+                <button type="submit" 
+                    class="w-full bg-gray-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all transform active:scale-95 shadow-lg">
+                    구독 완료하기
+                </button>
+            </form>
+        </div>
+
+        <div class="border-t border-gray-200 pt-12">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-xl font-bold text-gray-800">🗄️ 지난 리포트 (Archive)</h3>
+                <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">최근 발행</span>
+            </div>
+
+            <div class="space-y-3">
+                {% if archives %}
+                    {% for item in archives %}
+                    <a href="{{ item.link }}" class="block bg-white p-4 rounded-xl border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all group">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <span class="text-xs font-bold px-2 py-0.5 rounded 
+                                        {{ 'bg-blue-100 text-blue-700' if item.service == 'Signalist' else 'bg-orange-100 text-orange-700' }}">
+                                        {{ item.service }}
+                                    </span>
+                                    <span class="text-xs text-gray-400">{{ item.date }} · {{ item.type | upper }}</span>
+                                </div>
+                                <h4 class="font-medium text-gray-800 group-hover:text-blue-600 transition-colors">
+                                    {{ item.title }}
+                                </h4>
+                            </div>
+                            <div class="text-gray-300 group-hover:text-blue-500">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-8 text-gray-400 text-sm bg-gray-50 rounded-xl">
+                        아직 발행된 리포트가 없습니다.
+                    </div>
+                {% endif %}
             </div>
             
-            <div>
-                <label class="block text-gray-700 text-sm font-bold mb-2">닉네임 (선택)</label>
-                <input type="text" name="name" placeholder="불리우고 싶은 이름"
-                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="text-center mt-6">
+                <button class="text-sm font-semibold text-gray-500 hover:text-gray-900 border border-gray-300 px-4 py-2 rounded-full transition-colors">
+                    더 보기
+                </button>
             </div>
+        </div>
 
-            <button type="submit" 
-                class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition duration-300">
-                🚀 무료 구독하기
-            </button>
-        </form>
-        
-        <p class="text-center text-gray-400 text-xs mt-6">
-            © 2025 Fincore. All rights reserved.
-        </p>
     </div>
+
+    <footer class="bg-white border-t border-gray-200 mt-12 py-8">
+        <div class="max-w-4xl mx-auto px-6 text-center">
+            <p class="text-xs text-gray-400 mb-2">
+                Fincore | Seoul, Korea | admin@fincore.co.kr
+            </p>
+            <p class="text-xs text-gray-300">
+                &copy; 2025 Fincore. All rights reserved.
+            </p>
+        </div>
+    </footer>
 
 </body>
 </html>
