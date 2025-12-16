@@ -29,3 +29,8 @@ python-telegram-bot
 
 # [Web Server]
 Flask
+
+# [Database]
+pymysql
+cryptography
+
