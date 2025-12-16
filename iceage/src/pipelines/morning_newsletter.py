@@ -167,7 +167,7 @@ ENABLE_INVESTOR_FLOW_SECTION = False
 
 def section_header_intro(ref_date: str) -> str:
     bundle = _ensure_llm_bundle(ref_date)
-    title = bundle.get("title") or f"Signalist Daily — {ref_date}"
+    title = bundle.get("title") or f"The Signalist Daily — {ref_date}"
     kicker = bundle.get("kicker") or ""
     market_summary = bundle.get("market_one_liner") or ""
     
@@ -398,12 +398,12 @@ def section_signalist_today(ref_date: str) -> str:
         rows = []
 
     if not rows:
-        return "## 오늘의 레이더 포착 (Signalist Radar)\n\n포착된 종목이 없습니다."
+        return "## 오늘의 레이더 포착 (The Signalist Radar)\n\n포착된 종목이 없습니다."
 
     event_map = _get_internal_events(ref_date)
 
     intro = dedent("""
-    ## 오늘의 레이더 포착 (Signalist Radar)
+    ## 오늘의 레이더 포착 (The Signalist Radar)
     **"데이터가 발견한 수급의 변곡점"**
     Signalist레이더는 시총별 특성과 거래대금 괴리율을 입체적 분석하여, **유의미한 흐름이 포착된 종목**을 선별합니다.
     단순한 가격 등락이 아닌, **평소 대비 비정상적인 거래 강도**를 기반으로 가능성이 높은 구간을 탐지했습니다.
@@ -666,7 +666,7 @@ def section_footer() -> str:
     return dedent(f"""
     ---
     본 콘텐츠는 투자 권유 목적이 아닌 정보 제공용입니다.  
-    Signalist © 2025 All Rights Reserved.  [구독해지]  [의견보내기]
+    The Signalist © 2025 All Rights Reserved.  [구독해지]  [의견보내기]
     """).strip()
 
 MIND_TOPICS = ["확신보다 유연함", "손실을 대하는 태도", "과잉 확신의 함정", "복리와 기다림", "포지션 사이징"]

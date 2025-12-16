@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FINCORE{% endblock %}</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+    <style>
+        /* 스크롤바 공간 확보로 덜컹거림 방지 */
+        html { overflow-y: scroll; }
+        
+        body { 
+            font-family: 'Pretendard', sans-serif; 
+            background-color: #f9fafb; /* 전체 배경: 아주 연한 회색 */
+            color: #111;
+        }
+
+        /* GNB 메뉴 스타일 */
+        .nav-link {
+            display: inline-flex;
+            align-items: center;
+            height: 40px;
+            padding: 0 1.5rem;
+            border-radius: 9999px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #9ca3af; /* 비활성: 회색 */
+            transition: all 0.2s;
+        }
+        .nav-link:hover { color: #111; background-color: #f3f4f6; }
+        
+        /* 활성 상태: 검정색 */
+        .nav-link.active {
+            color: #000;
+            font-weight: 800;
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 h-16">
+        <div class="max-w-3xl mx-auto px-4 h-full flex items-center justify-between">
+            
+            <a href="/" class="flex items-center space-x-2 group shrink-0">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="h-6 w-auto object-contain">
+                <span class="text-xl font-black tracking-tight text-gray-900" style="font-family: 'Pretendard', sans-serif;">FINCORE</span>
+            </a>
+
+            <nav class="hidden md:flex items-center space-x-1">
+                <a href="/archive/signalist" class="nav-link {% if 'signalist' in request.path %}active{% endif %}">
+                   The Signalist
+                </a>
+                <span class="text-gray-300 text-xs">|</span>
+                <a href="/archive/moneybag" class="nav-link {% if 'moneybag' in request.path or 'whalehunter' in request.path %}active{% endif %}">
+                   The Whale Hunter
+                </a>
+            </nav>
+
+            <div class="shrink-0 w-[100px] text-right">
+                <a href="/#subscribe" class="inline-block bg-black text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-gray-800 transition">
+                    구독하기
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow w-full max-w-3xl mx-auto px-4 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="bg-white border-t border-gray-200 mt-auto py-8">
+        <div class="max-w-3xl mx-auto px-6 text-center">
+            <p class="text-[10px] text-gray-400">&copy; 2025 Fincore. All rights reserved.</p>
+        </div>
+    </footer>
+
+</body>
+</html>
