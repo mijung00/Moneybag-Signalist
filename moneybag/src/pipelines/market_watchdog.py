@@ -143,8 +143,12 @@ class MarketWatchdog:
             print(f"❌ AI/전송 실패: {e}")
 
 if __name__ == "__main__":
-    print("🦅 Moneybag Watchdog (Smart Cooldown) 시작")
-    dog = MarketWatchdog()
-    while True:
-        dog.check_market()
-        time.sleep(10) # 10초마다 체크
+    try:
+        # 실행 시작 알림
+        print("🦅 왓치독 메인 진입 성공")
+        asyncio.run(main())
+    except Exception as e:
+        # 치명적 에러 발생 시 로그 남기고 종료
+        print(f"💀 [FATAL ERROR] 왓치독 사망: {e}")
+        import traceback
+        traceback.print_exc()

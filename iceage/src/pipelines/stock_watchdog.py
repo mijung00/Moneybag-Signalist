@@ -182,4 +182,12 @@ async def main():
         await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        # 실행 시작 알림
+        print("🦅 왓치독 메인 진입 성공")
+        asyncio.run(main())
+    except Exception as e:
+        # 치명적 에러 발생 시 로그 남기고 종료
+        print(f"💀 [FATAL ERROR] 왓치독 사망: {e}")
+        import traceback
+        traceback.print_exc()
