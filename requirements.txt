@@ -8,6 +8,8 @@ tzdata>=2024.1
 lxml
 schedule
 boto3>=1.28.0
+beautifulsoup4
+
 
 # [Finance & Crypto]
 yfinance>=0.2.40

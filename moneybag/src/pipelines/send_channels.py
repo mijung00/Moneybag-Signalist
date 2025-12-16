@@ -1,46 +1,42 @@
 import os
 import requests
-from pathlib import Path
 from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parents[3]
-load_dotenv(BASE_DIR / ".env")
+# 환경변수 로드 (안전을 위해 추가)
+load_dotenv()
 
 class TelegramSender:
-    def __init__(self):
-        self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    def __init__(self, token=None, chat_id=None):
+        # [1] 인자로 들어온 토큰이 있으면(1순위) 그걸 씀. 
+        # [2] 없으면 머니백 환경변수(2순위), [3] 그것도 없으면 공용 토큰(3순위)
+        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN_MONEYBAG") or os.getenv("TELEGRAM_BOT_TOKEN")
+        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
+        
+        # 디버깅: 토큰이 비어있다면 로그 찍기
+        if not self.token:
+            print("❌ [TelegramSender] 초기화 실패: 토큰이 없습니다.")
+        if not self.chat_id:
+            print("❌ [TelegramSender] 초기화 실패: Chat ID가 없습니다.")
+        
+        # URL 생성
+        if self.token:
+            self.base_url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        else:
+            self.base_url = ""
 
     def send_message(self, text):
-        """
-        텔레그램 메시지 전송 (동기 방식)
-        """
         if not self.token or not self.chat_id:
-            print("❌ [Telegram] 토큰이나 채팅 ID가 설정되지 않았습니다.")
+            print("❌ [Telegram] 전송 불가: 토큰/ID 누락")
             return
 
-        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
-        
-        # 메시지가 너무 길면 잘라서 보냄 (텔레그램 제한 4096자)
-        chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
-        
-        for chunk in chunks:
-            payload = {
-                "chat_id": self.chat_id,
-                "text": chunk,
-                "parse_mode": "Markdown" # 마크다운 문법 지원 (*굵게* 등)
-            }
-            
-            try:
-                resp = requests.post(url, json=payload, timeout=5)
-                if resp.status_code == 200:
-                    print("✅ [Telegram] 전송 성공")
-                else:
-                    print(f"❌ [Telegram] 전송 실패: {resp.text}")
-            except Exception as e:
-                print(f"❌ [Telegram] 연결 오류: {e}")
-
-# 테스트용
-if __name__ == "__main__":
-    sender = TelegramSender()
-    sender.send_message("📢 **웨일 헌터**의 텔레그램 연결 테스트입니다.\n성공적으로 도착했습니다! 🚀")
+        payload = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": "Markdown"
+        }
+        try:
+            resp = requests.post(self.base_url, json=payload, timeout=5)
+            if resp.status_code != 200:
+                print(f"❌ [Telegram Error] {resp.text}")
+        except Exception as e:
+            print(f"❌ [Telegram Exception] {e}")

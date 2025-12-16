@@ -1,41 +1,28 @@
-# iceage/src/pipelines/telegram_bot.py
 import os
-import asyncio
-from telegram import Bot
+import sys
 from pathlib import Path
-from dotenv import load_dotenv
 
+# 머니백 경로 찾기
 BASE_DIR = Path(__file__).resolve().parents[3]
-load_dotenv(BASE_DIR / ".env")
+sys.path.append(str(BASE_DIR))
+
+try:
+    from moneybag.src.pipelines.send_channels import TelegramSender
+except ImportError:
+    from src.pipelines.send_channels import TelegramSender
 
 class SignalistTelegramBot:
-    def __init__(self):
-        self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    def __init__(self, token=None, chat_id=None):
+        # [1] 왓치독이 토큰을 줬으면 그걸 쓰고, 안 줬으면 환경변수에서 직접 찾음
+        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN_SIGNALIST")
+        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
         
-    async def send_message(self, text: str):
-        """
-        텔레그램 메시지 전송 (비동기)
-        """
-        if not self.token or not self.chat_id:
-            print("❌ [Telegram] 토큰이나 채팅 ID가 설정되지 않았습니다.")
-            return
+        # [2] ★핵심★ 찾은 토큰을 TelegramSender에게 '직접' 넣어줌
+        self.sender = TelegramSender(token=self.token, chat_id=self.chat_id)
 
+    async def send_message(self, message):
+        # 비동기 함수지만 내부적으로는 동기 Sender를 호출
         try:
-            bot = Bot(token=self.token)
-            # 메시지가 4096자를 넘으면 알아서 나눠 보내주는 로직은 라이브러리에 없으므로 간단 구현
-            if len(text) > 4000:
-                chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
-                for chunk in chunks:
-                    await bot.send_message(chat_id=self.chat_id, text=chunk, parse_mode="Markdown")
-            else:
-                await bot.send_message(chat_id=self.chat_id, text=text, parse_mode="Markdown")
-                
-            print("✅ [Telegram] 알림 발송 완료")
+            self.sender.send_message(message)
         except Exception as e:
-            print(f"❌ [Telegram] 발송 실패: {e}")
-
-# 테스트 코드
-if __name__ == "__main__":
-    bot = SignalistTelegramBot()
-    asyncio.run(bot.send_message("📢 **Signalist** 법인 계정 봇 연결 테스트! 🚀"))
+            print(f"❌ [Signalist Bot Error] {e}")
