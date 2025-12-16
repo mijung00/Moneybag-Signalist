@@ -1,383 +1,353 @@
-import asyncio
-import sys
+# iceage/src/pipelines/stock_watchdog.py
 import os
+import sys
+import time
 import json
-import requests
-import socket
-import traceback
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
+import signal
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from collections import deque
+from zoneinfo import ZoneInfo
+from typing import Optional, Tuple, List, Dict, Set
+
+import requests
 import yfinance as yf
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
-# ----------------------------
-# 경로/환경 로드
-# ----------------------------
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-if project_root not in sys.path:
-    sys.path.append(project_root)
+# ---------------------------------------------------------------------
+# ✅ 알림 기준 수정 (여기만 건드리면 됨)
+# ---------------------------------------------------------------------
+SERVICE_NAME = "Signalist"
+TZ = ZoneInfo("Asia/Seoul")
 
-load_dotenv(os.path.join(project_root, ".env"))
+TICKERS = {
+    "^KS11": "KOSPI",
+    "^KQ11": "KOSDAQ",
+}
 
-SOCKET_TIMEOUT_SEC = int(os.getenv("WATCHDOG_SOCKET_TIMEOUT_SEC", "15"))
-socket.setdefaulttimeout(SOCKET_TIMEOUT_SEC)
+POLL_INTERVAL_SEC = 10
 
-HEARTBEAT_PATH = os.getenv("ICEAGE_HEARTBEAT_PATH", "/tmp/iceage_stock_watchdog.heartbeat")
-STATE_DIR = Path(os.getenv("WATCHDOG_STATE_DIR", "/var/app/persistent"))
-STATE_PATH = STATE_DIR / "iceage_stock_watchdog_state.json"
+# 변화량 레벨(%)
+SIGNALIST_ALERT_LEVELS = [1, 2, 3, 5]
+
+# 10분 급가속 기준
+ACCEL_10M_PCT = 1.0
+
+# 기본 쿨타임(분) - 단, “새 레벨 돌파”는 쿨타임 무시
+COOLDOWN_MIN = 20
+
+# 정기 “생존 신호” 브리핑 시간(죽었는지 확인용) - KST 기준
+OPEN_BRIEF_TIME = "09:05"
+CLOSE_BRIEF_TIME = "16:05"
+BRIEF_USE_LLM = True
+# ---------------------------------------------------------------------
+
+
+def _repo_root_on_syspath() -> None:
+    try:
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        repo_root_str = str(repo_root)
+        if repo_root_str not in sys.path:
+            sys.path.insert(0, repo_root_str)
+    except Exception:
+        cwd = os.getcwd()
+        if cwd not in sys.path:
+            sys.path.insert(0, cwd)
+
+
+_repo_root_on_syspath()
 
 try:
-    from iceage.src.pipelines.telegram_bot import SignalistTelegramBot
-    from moneybag.src.llm.openai_driver import _chat
-except ImportError:
-    sys.path.append(os.getcwd())
-    from src.pipelines.telegram_bot import SignalistTelegramBot
-    from moneybag.src.llm.openai_driver import _chat
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+try:
+    from iceage.src.llm.openai_driver import _chat
+except Exception:
+    _chat = None
 
 
-def now_kst() -> datetime:
-    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9)))
-
-
-def is_weekday_kst(t: datetime) -> bool:
-    return t.weekday() < 5  # 0=Mon ... 4=Fri
-
-
-def hhmm(t: datetime) -> str:
-    return t.strftime("%H:%M")
-
-
-class StockWatchdog:
-    def __init__(self):
-        token = os.getenv("TELEGRAM_BOT_TOKEN_SIGNALIST")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID_SIGNALIST")
-        self.bot = SignalistTelegramBot(token=token, chat_id=chat_id)
-
-        self.targets = {"^KS11": "코스피", "^KQ11": "코스닥"}
-
-        # 참고용(주도주 느낌)
-        self.monitoring_pool = {
-            "^KS11": ["005930.KS", "000660.KS", "373220.KS", "207940.KS"],
-            "^KQ11": ["247540.KQ", "086520.KQ", "022100.KQ"],
-        }
-
-        # =========================
-        # ✅✅ 알림 기준 수정 영역 (여기만 바꾸면 됨)
-        # =========================
-        self.poll_sec = 10  # 감시 주기(초)
-
-        # “레벨 돌파 알림” 기준: 전일 종가 대비 |변화율| %
-        # 예: 1,2,3,5면 |전일대비|가 1%/2%/3%/5%를 처음 넘는 순간마다 알림 가능
-        self.levels = [1.0, 2.0, 3.0, 5.0]
-
-        # 기본 쿨타임(같은 레벨에서 반복 울림 방지)
-        self.cooldown_sec = 30 * 60  # 30분
-
-        # 단기 급가속(10분 변화율)
-        self.th_10m = 0.7  # 10분에 0.7% 이상이면 “급가속” 알림 후보
-
-        # 정기 “생존 신호” 브리핑 시간(죽었는지 확인용)
-        self.open_brief_time = "09:05"   # 장 시작 5분 후
-        self.close_brief_time = "19:55"  # 장 마감 후
-        self.brief_use_llm = True        # 정기 브리핑에도 AI 설명을 붙일지
-        # =========================
-
-        # 상태(재시작해도 유지)
-        self.price_history = {k: deque(maxlen=6 * 3600 // self.poll_sec) for k in self.targets}
-        self.last_alert_time = {}      # ticker -> datetime
-        self.last_alert_level = {}     # ticker -> int(level_index)
-        self.last_alert_sign = {}      # ticker -> +1 or -1  (부호 전환 감지용)
-
-        self.sent_open_brief_date = None
-        self.sent_close_brief_date = None
-
-        self._load_state()
-
-    def _touch_heartbeat(self):
+def _extract_secret_value(raw: str, env_key: str) -> str:
+    if not raw:
+        return ""
+    s = raw.strip()
+    if s.startswith("{") and s.endswith("}"):
         try:
-            Path(HEARTBEAT_PATH).write_text(now_kst().isoformat())
+            obj = json.loads(s)
+            if isinstance(obj, dict):
+                if env_key in obj and isinstance(obj[env_key], str) and obj[env_key].strip():
+                    return obj[env_key].strip()
+                for v in obj.values():
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
         except Exception:
-            pass
+            return s
+    return s
 
-    def _ensure_state_dir(self):
-        try:
-            STATE_DIR.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
 
-    def _load_state(self):
-        self._ensure_state_dir()
-        if not STATE_PATH.exists():
+@dataclass
+class TelegramClient:
+    token: str
+    chat_id: str
+
+    def send(self, text: str) -> None:
+        if not self.token or not self.chat_id:
+            print("❌ [Telegram] token/chat_id 비어있음", flush=True)
             return
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        payload = {"chat_id": self.chat_id, "text": text, "disable_web_page_preview": True}
         try:
-            raw = json.loads(STATE_PATH.read_text())
-            self.last_alert_time = {k: datetime.fromisoformat(v) for k, v in (raw.get("last_alert_time") or {}).items()}
-            self.last_alert_level = raw.get("last_alert_level") or {}
-            self.last_alert_sign = raw.get("last_alert_sign") or {}
-            self.sent_open_brief_date = raw.get("sent_open_brief_date")
-            self.sent_close_brief_date = raw.get("sent_close_brief_date")
-        except Exception:
-            pass
-
-    def _save_state(self):
-        try:
-            self._ensure_state_dir()
-            raw = {
-                "last_alert_time": {k: v.isoformat() for k, v in self.last_alert_time.items()},
-                "last_alert_level": self.last_alert_level,
-                "last_alert_sign": self.last_alert_sign,
-                "sent_open_brief_date": self.sent_open_brief_date,
-                "sent_close_brief_date": self.sent_close_brief_date,
-            }
-            STATE_PATH.write_text(json.dumps(raw, ensure_ascii=False))
-        except Exception:
-            pass
-
-    async def get_current_and_prev_close(self, ticker):
-        try:
-            t = yf.Ticker(ticker)
-            info = getattr(t, "fast_info", None) or {}
-            cur = info.get("last_price")
-            prev = info.get("previous_close")
-
-            if cur is None or prev is None:
-                hist = t.history(period="2d")
-                if hist is not None and not hist.empty:
-                    cur = float(hist["Close"].iloc[-1])
-                    if len(hist) >= 2:
-                        prev = float(hist["Close"].iloc[-2])
-
-            if cur is None or prev is None:
-                return (None, None)
-            return (float(cur), float(prev))
+            r = requests.post(url, json=payload, timeout=15)
+            if r.status_code != 200:
+                print(f"❌ [Telegram Error] status={r.status_code} body={r.text[:200]}", flush=True)
         except Exception as e:
-            print(f"⚠️ 가격 조회 실패({ticker}): {e}")
-            traceback.print_exc()
-            return (None, None)
+            print(f"❌ [Telegram Exception] {e}", flush=True)
 
-    def get_market_movers(self, index_ticker):
-        movers = []
-        for stock in self.monitoring_pool.get(index_ticker, []):
-            try:
-                st = yf.Ticker(stock)
-                info = getattr(st, "fast_info", None) or {}
-                p = info.get("last_price")
-                prev = info.get("previous_close")
-                if p is None or prev is None:
-                    continue
-                pct = ((p - prev) / prev) * 100
-                movers.append(f"{stock}({pct:+.2f}%)")
-            except Exception:
-                continue
-        return ", ".join(movers[:3])
 
-    def get_naver_news_headlines(self):
+class SignalistWatchdog:
+    def __init__(self):
+        tok_raw = os.getenv("TELEGRAM_BOT_TOKEN_SIGNALIST", "")
+        chat_raw = os.getenv("TELEGRAM_CHAT_ID_SIGNALIST", "")
+        token = _extract_secret_value(tok_raw, "TELEGRAM_BOT_TOKEN_SIGNALIST")
+        chat_id = _extract_secret_value(chat_raw, "TELEGRAM_CHAT_ID_SIGNALIST")
+        self.tg = TelegramClient(token=token, chat_id=chat_id)
+
+        self.hist = {t: deque(maxlen=1200) for t in TICKERS}
+        self.baseline = {}      # ticker -> (date, price)
+        self.sent_levels = {}   # ticker -> (date, set[(sign, level)])
+        self.last_alert_time = {t: None for t in TICKERS}
+
+        self._open_brief_date = None
+        self._close_brief_date = None
+
+        self._stop = False
+        signal.signal(signal.SIGTERM, self._on_stop)
+        signal.signal(signal.SIGINT, self._on_stop)
+
+    def _on_stop(self, *_):
+        self._stop = True
+
+    def _now(self) -> datetime:
+        return datetime.now(TZ)
+
+    def _get_price(self, ticker: str) -> Optional[float]:
         try:
-            url = "https://news.naver.com/main/list.naver?mode=LSD&mid=sec&sid1=101"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            resp = requests.get(url, headers=headers, timeout=5)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            titles = soup.select(".type06_headline li dl dt a")
-
-            headlines = []
-            for t in titles[:3]:
-                headlines.append(t.text.strip())
-            return "\n".join(headlines)
+            return float(yf.Ticker(ticker).fast_info["last_price"])
         except Exception:
-            return "뉴스 수집 실패"
+            try:
+                data = yf.download(ticker, period="1d", interval="1m", progress=False)
+                if data is None or data.empty:
+                    return None
+                return float(data["Close"].iloc[-1])
+            except Exception as e:
+                print(f"⚠️ [Price] {ticker} 조회 실패: {e}", flush=True)
+                return None
 
-    def _pct_change_since(self, ticker_key, seconds):
-        hist = self.price_history[ticker_key]
-        if len(hist) < 2:
+    def _pct_over_minutes(self, ticker: str, minutes: int) -> Optional[float]:
+        h = self.hist[ticker]
+        if len(h) < 2:
             return None
-        target = now_kst() - timedelta(seconds=seconds)
-        base = None
-        for t, p in hist:
-            if t >= target:
-                base = p
-                break
-        if base is None:
-            base = hist[0][1]
-        cur = hist[-1][1]
-        if base == 0:
-            return None
-        return ((cur - base) / base) * 100.0
-
-    def _level_index(self, abs_pct: float) -> int:
-        idx = 0
-        for lv in self.levels:
-            if abs_pct >= lv:
-                idx += 1
+        target_ts = self._now() - timedelta(minutes=minutes)
+        old_price = None
+        for ts, p in h:
+            if ts <= target_ts:
+                old_price = p
             else:
                 break
-        return idx  # 0..N
+        if old_price is None:
+            return None
+        cur_price = h[-1][1]
+        return ((cur_price - old_price) / old_price) * 100.0
 
-    async def _send_llm_or_plain(self, title: str, context: str):
-        if not self.brief_use_llm:
-            await self.bot.send_message(f"{title}\n{context}")
-            return
+    def _ensure_daily_state(self, ticker: str, price: float):
+        today = self._now().date()
+        if ticker not in self.baseline or self.baseline[ticker][0] != today:
+            self.baseline[ticker] = (today, price)
+            self.sent_levels[ticker] = (today, set())
+            self.last_alert_time[ticker] = None
 
-        system_prompt = (
-            "너는 시장 상황을 '드라이하게' 설명하는 애널리스트다. "
-            "과장하지 말고, 불확실성은 불확실하다고 말해라. "
-            "매수/매도 지시처럼 보이는 표현은 절대 하지 말고, "
-            "'지금 확인할 것' 체크리스트 형태로 정리해라."
-        )
-        user_prompt = f"{title}\n\n{context}"
+    def _level_crossed(self, base_price: float, cur_price: float) -> List[Tuple[int, int]]:
+        pct = ((cur_price - base_price) / base_price) * 100.0
+        sign = 1 if pct >= 0 else -1
+        apct = abs(pct)
+        crosses = []
+        for lv in SIGNALIST_ALERT_LEVELS:
+            if apct >= lv:
+                crosses.append((sign, lv))
+        return crosses
 
+    def _fetch_headlines(self, limit: int = 3) -> str:
         try:
-            msg = _chat(system_prompt, user_prompt)
-        except Exception:
-            msg = f"{title}\n{context}"
-
-        await self.bot.send_message(msg)
-
-    async def _maybe_send_open_close_briefs(self):
-        """
-        ✅✅ 정기 브리핑(생존 신호)
-        - 평일 09:05 / 16:05에 1회씩 보냄
-        """
-        t = now_kst()
-        if not is_weekday_kst(t):
-            return
-
-        today = t.date().isoformat()
-
-        # 09:05 오픈 브리핑
-        if hhmm(t) >= self.open_brief_time and self.sent_open_brief_date != today:
-            lines = [f"🟩 [Signalist] 장초반 브리핑 ({t.strftime('%Y-%m-%d %H:%M')})"]
-            for ticker_key, name in self.targets.items():
-                cur, prev = await self.get_current_and_prev_close(ticker_key)
-                if cur is None or prev is None:
-                    continue
-                daily = ((cur - prev) / prev) * 100
-                ch5 = self._pct_change_since(ticker_key, 5 * 60)
-                movers = self.get_market_movers(ticker_key)
-                lines.append(f"- {name}: 전일대비 {daily:+.2f}% / 5분 {ch5:+.2f}% (주도주: {movers})" if ch5 is not None
-                             else f"- {name}: 전일대비 {daily:+.2f}% (주도주: {movers})")
-
-            news = self.get_naver_news_headlines()
-            ctx = "\n".join(lines) + "\n\n[주요 뉴스]\n" + news
-            await self._send_llm_or_plain(lines[0], ctx)
-
-            self.sent_open_brief_date = today
-            self._save_state()
-
-        # 16:05 마감 브리핑
-        if hhmm(t) >= self.close_brief_time and self.sent_close_brief_date != today:
-            lines = [f"🟦 [Signalist] 장마감 브리핑 ({t.strftime('%Y-%m-%d %H:%M')})"]
-            for ticker_key, name in self.targets.items():
-                cur, prev = await self.get_current_and_prev_close(ticker_key)
-                if cur is None or prev is None:
-                    continue
-                daily = ((cur - prev) / prev) * 100
-                ch30 = self._pct_change_since(ticker_key, 30 * 60)
-                movers = self.get_market_movers(ticker_key)
-                lines.append(f"- {name}: 전일대비 {daily:+.2f}% / 30분 {ch30:+.2f}% (주도주: {movers})" if ch30 is not None
-                             else f"- {name}: 전일대비 {daily:+.2f}% (주도주: {movers})")
-
-            news = self.get_naver_news_headlines()
-            ctx = "\n".join(lines) + "\n\n[주요 뉴스]\n" + news
-            await self._send_llm_or_plain(lines[0], ctx)
-
-            self.sent_close_brief_date = today
-            self._save_state()
-
-    async def check_market(self):
-        self._touch_heartbeat()
-        print(f"\r👀 Signalist 감시 중... ({now_kst().strftime('%H:%M:%S')})", end="", flush=True)
-
-        # ✅ 정기 브리핑(죽었는지 확인용)
-        await self._maybe_send_open_close_briefs()
-
-        # ✅ 급변 알림
-        for ticker_key, name in self.targets.items():
-            cur, prev_close = await self.get_current_and_prev_close(ticker_key)
-            if cur is None or prev_close is None:
-                continue
-
-            self.price_history[ticker_key].append((now_kst(), cur))
-
-            daily_pct = ((cur - prev_close) / prev_close) * 100.0
-            abs_daily = abs(daily_pct)
-            sign = 1 if daily_pct >= 0 else -1
-
-            cur_level = self._level_index(abs_daily)
-            last_level = int(self.last_alert_level.get(ticker_key, 0))
-            last_sign = int(self.last_alert_sign.get(ticker_key, sign))
-
-            ch10 = self._pct_change_since(ticker_key, 10 * 60)
-            accel = (ch10 is not None and abs(ch10) >= self.th_10m)
-
-            last_t = self.last_alert_time.get(ticker_key)
-            in_cooldown = False
-            if last_t and (now_kst() - last_t).total_seconds() < self.cooldown_sec:
-                in_cooldown = True
-
-            should = False
-            reason = ""
-            extra = []
-            if ch10 is not None:
-                extra.append(f"10분 {ch10:+.2f}%")
-
-            # 1) 레벨 “상향 돌파”는 쿨타임이어도 알림(중요)
-            if cur_level > last_level and cur_level >= 1:
-                should = True
-                reason = f"레벨 돌파: |전일대비| ≥ {self.levels[cur_level - 1]:.1f}% (현재 {daily_pct:+.2f}%)"
-
-            # 2) 부호 전환(+ ↔ -)은 레벨이 낮아도 알림 가치가 큼 (옵션처럼 동작)
-            if (not should) and (sign != last_sign) and abs_daily >= self.levels[0]:
-                should = True
-                reason = f"방향 전환: {('상승' if last_sign > 0 else '하락')} → {('상승' if sign > 0 else '하락')} (현재 {daily_pct:+.2f}%)"
-
-            # 3) 단기 급가속(쿨타임 중엔 더 엄격)
-            if (not should) and accel:
-                if not in_cooldown:
-                    should = True
-                    reason = f"단기 급가속: 10분 {ch10:+.2f}%"
+            url = "https://m.stock.naver.com/news/mainnews"
+            r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+            items = soup.select("a.NewsList_item__lO7iA")[:limit]
+            lines = []
+            for it in items:
+                title = it.get_text(strip=True)
+                href = it.get("href", "")
+                if href and href.startswith("/"):
+                    href = "https://m.stock.naver.com" + href
+                if href:
+                    lines.append(f"- {title}\n  {href}")
                 else:
-                    if abs(ch10) >= (self.th_10m + 0.4):
-                        should = True
-                        reason = f"🚨 추가 급가속(쿨타임 무시): 10분 {ch10:+.2f}%"
+                    lines.append(f"- {title}")
+            return "\n".join(lines)
+        except Exception:
+            return ""
 
-            if should:
-                movers_status = self.get_market_movers(ticker_key)
-                news_summary = self.get_naver_news_headlines()
-
-                title = f"🚨 [Signalist] {name} 변동 감지"
-                ctx = (
-                    f"[전일대비] {daily_pct:+.2f}%\n"
-                    f"[사유] {reason}\n"
-                    f"[참고] {', '.join(extra) if extra else 'N/A'}\n"
-                    f"[주도주] {movers_status}\n"
-                    f"[뉴스]\n{news_summary}\n"
-                )
-                await self._send_llm_or_plain(title, ctx)
-
-                self.last_alert_time[ticker_key] = now_kst()
-                self.last_alert_level[ticker_key] = cur_level
-                self.last_alert_sign[ticker_key] = sign
-                self._save_state()
-
-
-async def main():
-    print("🦅 [System] Signalist Watchdog 프로세스 시작")
-    sys.stdout.flush()
-
-    dog = StockWatchdog()
-    print("🦅 [System] 주식 감시 루프 진입.")
-
-    while True:
+    def _llm_comment(self, text: str) -> str:
+        if not BRIEF_USE_LLM or not _chat:
+            return ""
         try:
-            await dog.check_market()
-        except Exception as e:
-            print(f"\n❌ [Error] 루프 에러: {e}")
-            traceback.print_exc()
-        await asyncio.sleep(dog.poll_sec)
+            system = "너는 'Signalist'의 시장 관측 애널리스트다. 투자 조언 금지. 상황 설명만."
+            user = text + "\n\n3~5줄로 요약해줘."
+            return (_chat(system, user) or "").strip()
+        except Exception:
+            return ""
+
+    # ✅ 중요: 브리핑은 “시장 열려있나?”와 무관하게 시간만 맞으면 무조건 실행
+    def _send_brief_if_due(self):
+        now = self._now()
+        hhmm = now.strftime("%H:%M")
+        today = now.date()
+
+        if hhmm == OPEN_BRIEF_TIME and self._open_brief_date != today:
+            self.tg.send(self._format_brief("장 시작 브리핑"))
+            self._open_brief_date = today
+
+        if hhmm == CLOSE_BRIEF_TIME and self._close_brief_date != today:
+            self.tg.send(self._format_brief("장 마감 브리핑"))
+            self._close_brief_date = today
+
+    def _format_brief(self, tag: str) -> str:
+        now = self._now().strftime("%Y-%m-%d %H:%M")
+        lines = [f"🟨 {SERVICE_NAME} {tag} ({now} KST)"]
+        for t, name in TICKERS.items():
+            price = self._get_price(t)
+            if price is None:
+                continue
+            self._ensure_daily_state(t, price)
+            base = self.baseline[t][1]
+            pct = ((price - base) / base) * 100.0
+            lines.append(f"- {name}: {price:,.2f} (기준 대비 {pct:+.2f}%)")
+
+        headlines = self._fetch_headlines(3)
+        if headlines:
+            lines += ["", "📰 주요 헤드라인", headlines]
+
+        llm = self._llm_comment("\n".join(lines))
+        if llm:
+            lines += ["", "🤖 AI 요약", llm]
+
+        return "\n".join(lines)
+
+    def _format_level_alert(self, name: str, price: float, pct_base: float, sign: int, lv: int,
+                           pct10: Optional[float], headlines: str, llm: str) -> str:
+        now = self._now().strftime("%Y-%m-%d %H:%M:%S")
+        direction = "상승" if sign > 0 else "하락"
+        lines = [
+            f"🚨 {SERVICE_NAME} 지수 급변 알림 ({now} KST)",
+            f"- {name}: {price:,.2f}",
+            f"- 기준 대비: {pct_base:+.2f}%",
+            f"- 새 레벨 돌파: {direction} {lv}%"
+        ]
+        if pct10 is not None:
+            lines.append(f"- 10분 변화: {pct10:+.2f}%")
+        if headlines:
+            lines += ["", "📰 주요 헤드라인", headlines]
+        if llm:
+            lines += ["", "🤖 AI 코멘트", llm]
+        return "\n".join(lines)
+
+    def _format_accel_alert(self, name: str, price: float, pct_base: float, pct10: float,
+                           headlines: str, llm: str) -> str:
+        now = self._now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            f"🚨 {SERVICE_NAME} 급가속 알림 ({now} KST)",
+            f"- {name}: {price:,.2f}",
+            f"- 기준 대비: {pct_base:+.2f}%",
+            f"- 사유: 10분 급가속(≥ {ACCEL_10M_PCT:.2f}%) / 실제 10분 변화 {pct10:+.2f}%"
+        ]
+        if headlines:
+            lines += ["", "📰 주요 헤드라인", headlines]
+        if llm:
+            lines += ["", "🤖 AI 코멘트", llm]
+        return "\n".join(lines)
+
+    def run_forever(self):
+        print("🦅 [System] Signalist Watchdog 시작", flush=True)
+        print("🦅 [System] 주식 감시 루프 진입...", flush=True)
+
+        while not self._stop:
+            self._send_brief_if_due()
+
+            now = self._now()
+            for ticker, name in TICKERS.items():
+                price = self._get_price(ticker)
+                if price is None:
+                    continue
+
+                self.hist[ticker].append((now, price))
+                self._ensure_daily_state(ticker, price)
+
+                base = self.baseline[ticker][1]
+                pct_base = ((price - base) / base) * 100.0
+                pct10 = self._pct_over_minutes(ticker, 10)
+
+                crossed = self._level_crossed(base, price)
+                today, sent = self.sent_levels[ticker]
+
+                new_levels = [c for c in crossed if c not in sent]
+
+                last_t = self.last_alert_time.get(ticker)
+                cooldown_ok = (last_t is None) or ((now - last_t) >= timedelta(minutes=COOLDOWN_MIN))
+
+                accel_only = (pct10 is not None and abs(pct10) >= ACCEL_10M_PCT and not new_levels)
+
+                if accel_only and not cooldown_ok:
+                    continue
+
+                if not new_levels and not accel_only:
+                    continue
+
+                headlines = self._fetch_headlines(3)
+
+                llm = ""
+                if _chat:
+                    try:
+                        system = "너는 'Signalist'의 시장 관측 애널리스트다. 투자 조언 금지."
+                        user = f"{name} 지수: 기준 대비 {pct_base:+.2f}%, 10분 변화={pct10}. 3~5줄 설명."
+                        llm = (_chat(system, user) or "").strip()
+                    except Exception:
+                        llm = ""
+
+                # 레벨 알림이 있으면: “가장 큰 새 레벨 1개”만 보내고 나머지는 sent 처리
+                if new_levels:
+                    new_levels_sorted = sorted(new_levels, key=lambda x: x[1], reverse=True)
+                    sign, lv = new_levels_sorted[0]
+                    self.tg.send(self._format_level_alert(name, price, pct_base, sign, lv, pct10, headlines, llm))
+                    for c in new_levels:
+                        sent.add(c)
+                    self.sent_levels[ticker] = (today, sent)
+                    self.last_alert_time[ticker] = now
+
+                # 급가속만으로 알림
+                elif accel_only and pct10 is not None:
+                    self.tg.send(self._format_accel_alert(name, price, pct_base, pct10, headlines, llm))
+                    self.last_alert_time[ticker] = now
+
+            print(f"\r👀 Signalist 감시 중... ({self._now().strftime('%H:%M:%S')})", end="", flush=True)
+            time.sleep(POLL_INTERVAL_SEC)
+
+
+def main():
+    SignalistWatchdog().run_forever()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

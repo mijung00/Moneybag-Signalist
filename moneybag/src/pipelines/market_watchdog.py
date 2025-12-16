@@ -1,307 +1,325 @@
-import time
-import sys
+# moneybag/src/pipelines/market_watchdog.py
 import os
+import sys
+import time
 import json
-import requests
-import traceback
-import socket
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+import signal
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from collections import deque
-from dotenv import load_dotenv
+from zoneinfo import ZoneInfo
+from typing import Optional, Tuple, List, Dict, Set
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-if project_root not in sys.path:
-    sys.path.append(project_root)
+import requests
 
-load_dotenv(os.path.join(project_root, ".env"))
+# ---------------------------------------------------------------------
+# ✅ 알림 기준 수정 (여기만 건드리면 됨)
+# ---------------------------------------------------------------------
+SERVICE_NAME = "The Whale Hunter"  # ✅ 서비스명(메시지에 표시될 이름)
+TZ = ZoneInfo("Asia/Seoul")
 
-SOCKET_TIMEOUT_SEC = int(os.getenv("WATCHDOG_SOCKET_TIMEOUT_SEC", "15"))
-socket.setdefaulttimeout(SOCKET_TIMEOUT_SEC)
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
 
-HEARTBEAT_PATH = os.getenv("MONEYBAG_HEARTBEAT_PATH", "/tmp/moneybag_market_watchdog.heartbeat")
-STATE_DIR = Path(os.getenv("WATCHDOG_STATE_DIR", "/var/app/persistent"))
-STATE_PATH = STATE_DIR / "moneybag_market_watchdog_state.json"
+POLL_INTERVAL_SEC = 10
+
+# “의미 있는 움직임” 기준 (15분 / 60분)
+TH_15M_PCT = 0.8     # 예: 0.8% 이상이면 알림 고려
+TH_60M_PCT = 2.5     # 예: 2.5% 이상이면 알림 고려
+
+# 10분 급가속(추세 가속) 기준
+ACCEL_10M_PCT = 1.2  # 예: 10분에 1.2% 이상이면 “급가속” 알림
+
+# 같은 심볼 연속 알림 쿨타임 (기본 30분)
+COOLDOWN_MIN = 30
+
+# 쿨타임 중이라도, “마지막 알림 이후 추가 변동”이 이 이상이면 강제로 또 알림
+# (예: 2% 급등 알림 후 5분 만에 추가로 +3% 더 가면 다시 알림)
+COOLDOWN_BYPASS_PCT = 2.0
+
+# 하루에 2~3번 “생존신호” 브리핑(죽었는지 확인용) - KST 기준
+BRIEF_TIMES = ["09:00", "15:00", "21:00"]
+BRIEF_USE_LLM = False
+BRIEF_ON_START = True
+# ---------------------------------------------------------------------
+
+
+def _repo_root_on_syspath() -> None:
+    try:
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        repo_root_str = str(repo_root)
+        if repo_root_str not in sys.path:
+            sys.path.insert(0, repo_root_str)
+    except Exception:
+        cwd = os.getcwd()
+        if cwd not in sys.path:
+            sys.path.insert(0, cwd)
+
+
+_repo_root_on_syspath()
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 try:
     from moneybag.src.collectors.crypto_news_rss import CryptoNewsRSS
+except Exception:
+    CryptoNewsRSS = None
+
+try:
     from moneybag.src.llm.openai_driver import _chat
-    from moneybag.src.pipelines.send_channels import TelegramSender
-except ImportError as e:
-    print(f"❌ [Import Error] 모듈을 찾을 수 없습니다: {e}")
-    sys.path.append(os.getcwd())
-    from moneybag.src.collectors.crypto_news_rss import CryptoNewsRSS
-    from moneybag.src.llm.openai_driver import _chat
-    from moneybag.src.pipelines.send_channels import TelegramSender
+except Exception:
+    _chat = None
 
 
-def now_kst() -> datetime:
-    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9)))
+def _extract_secret_value(raw: str, env_key: str) -> str:
+    if not raw:
+        return ""
+    s = raw.strip()
+    if s.startswith("{") and s.endswith("}"):
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict):
+                if env_key in obj and isinstance(obj[env_key], str) and obj[env_key].strip():
+                    return obj[env_key].strip()
+                for v in obj.values():
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
+        except Exception:
+            return s
+    return s
 
 
-def hhmm(t: datetime) -> str:
-    return t.strftime("%H:%M")
+@dataclass
+class TelegramClient:
+    token: str
+    chat_id: str
+
+    def send(self, text: str) -> None:
+        if not self.token or not self.chat_id:
+            print("❌ [Telegram] token/chat_id 비어있음", flush=True)
+            return
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        payload = {"chat_id": self.chat_id, "text": text, "disable_web_page_preview": True}
+        try:
+            r = requests.post(url, json=payload, timeout=15)
+            if r.status_code != 200:
+                print(f"❌ [Telegram Error] status={r.status_code} body={r.text[:200]}", flush=True)
+        except Exception as e:
+            print(f"❌ [Telegram Exception] {e}", flush=True)
 
 
 class MarketWatchdog:
     def __init__(self):
-        token = os.getenv("TELEGRAM_BOT_TOKEN_MONEYBAG")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID_MONEYBAG")
-        self.telegram = TelegramSender(token=token, chat_id=chat_id)
-        self.news_collector = CryptoNewsRSS()
+        tok_raw = os.getenv("TELEGRAM_BOT_TOKEN_MONEYBAG", "")
+        chat_raw = os.getenv("TELEGRAM_CHAT_ID_MONEYBAG", "")
+        token = _extract_secret_value(tok_raw, "TELEGRAM_BOT_TOKEN_MONEYBAG")
+        chat_id = _extract_secret_value(chat_raw, "TELEGRAM_CHAT_ID_MONEYBAG")
+        self.tg = TelegramClient(token=token, chat_id=chat_id)
 
-        self.targets = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
+        self.news = CryptoNewsRSS() if CryptoNewsRSS else None
 
-        # =========================
-        # ✅✅ 알림 기준 수정 영역 (여기만 바꾸면 됨)
-        # =========================
-        self.poll_sec = 10
+        self.price_hist = {s: deque(maxlen=1200) for s in SYMBOLS}
+        self.last_alert_time = {s: None for s in SYMBOLS}
+        self.last_alert_price = {s: None for s in SYMBOLS}
 
-        # “의미 있는 움직임” 기준 (15분 / 1시간)
-        self.th_15m = 1.2
-        self.th_60m = 2.5
+        self._brief_last_date = {t: None for t in BRIEF_TIMES}
+        self._startup_brief_sent = False
 
-        # 같은 코인 반복 울림 방지(쿨타임)
-        self.cooldown_sec = 30 * 60  # 30분
+        self._stop = False
+        signal.signal(signal.SIGTERM, self._on_stop)
+        signal.signal(signal.SIGINT, self._on_stop)
 
-        # 쿨타임 중이라도 ‘추가 급변’이면 알림(예: 알림 후 다시 +1.5% 더)
-        self.escalate_extra_pct = 1.5
+    def _on_stop(self, *_):
+        self._stop = True
 
-        # 정기 “생존 신호” 브리핑 시간(죽었는지 확인용) - 코인은 24시간이니 하루 2번 추천
-        self.brief_times = ["09:00", "19:55"]
-        self.brief_use_llm = False  # 정기 브리핑까지 AI 돌리면 비용/잡음 증가(기본 False)
-        # =========================
+    def _now(self) -> datetime:
+        return datetime.now(TZ)
 
-        self.price_history = {c: deque(maxlen=24 * 3600 // self.poll_sec) for c in self.targets}
-        self.last_alert_price = {}
-        self.last_alert_time = {}
-        self.sent_brief_dates = {}  # "09:00" -> "YYYY-MM-DD"
-
-        self._load_state()
-
-    def _touch_heartbeat(self):
+    def _binance_price(self, symbol: str) -> Optional[float]:
+        url = "https://api.binance.com/api/v3/ticker/price"
         try:
-            Path(HEARTBEAT_PATH).write_text(now_kst().isoformat())
-        except Exception:
-            pass
-
-    def _ensure_state_dir(self):
-        try:
-            STATE_DIR.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-
-    def _load_state(self):
-        self._ensure_state_dir()
-        if not STATE_PATH.exists():
-            return
-        try:
-            raw = json.loads(STATE_PATH.read_text())
-            self.last_alert_price = raw.get("last_alert_price") or {}
-            tmap = raw.get("last_alert_time") or {}
-            self.last_alert_time = {k: datetime.fromisoformat(v) for k, v in tmap.items()}
-            self.sent_brief_dates = raw.get("sent_brief_dates") or {}
-        except Exception:
-            pass
-
-    def _save_state(self):
-        try:
-            self._ensure_state_dir()
-            raw = {
-                "last_alert_price": self.last_alert_price,
-                "last_alert_time": {k: v.isoformat() for k, v in self.last_alert_time.items()},
-                "sent_brief_dates": self.sent_brief_dates,
-            }
-            STATE_PATH.write_text(json.dumps(raw, ensure_ascii=False))
-        except Exception:
-            pass
-
-    def get_binance_price(self, symbol):
-        try:
-            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-            resp = requests.get(url, timeout=5)
-            if resp.status_code == 200:
-                return float(resp.json()["price"])
+            r = requests.get(url, params={"symbol": symbol}, timeout=10)
+            r.raise_for_status()
+            return float(r.json()["price"])
         except Exception as e:
-            print(f"⚠️ [API Error] {symbol}: {e}")
-        return None
+            print(f"⚠️ [Price] {symbol} 조회 실패: {e}", flush=True)
+            return None
 
-    def get_binance_24h_change_pct(self, symbol):
-        """정기 브리핑용: 24시간 변화율(바이낸스 제공)"""
+    def _binance_24h(self, symbol: str) -> Tuple[Optional[float], Optional[float]]:
+        url = "https://api.binance.com/api/v3/ticker/24hr"
         try:
-            url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-            resp = requests.get(url, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                return float(data.get("priceChangePercent"))
+            r = requests.get(url, params={"symbol": symbol}, timeout=10)
+            r.raise_for_status()
+            j = r.json()
+            return float(j["lastPrice"]), float(j["priceChangePercent"])
         except Exception:
-            pass
-        return None
+            return None, None
 
-    def _append_history(self, coin, price):
-        self.price_history[coin].append((now_kst(), price))
-
-    def _pct_change_since(self, coin, seconds):
-        hist = self.price_history[coin]
+    def _pct_over_minutes(self, symbol: str, minutes: int) -> Optional[float]:
+        hist = self.price_hist[symbol]
         if len(hist) < 2:
             return None
-        target = now_kst() - timedelta(seconds=seconds)
-        base = None
-        for t, p in hist:
-            if t >= target:
-                base = p
+        target_ts = self._now() - timedelta(minutes=minutes)
+        old_price = None
+        for ts, p in hist:
+            if ts <= target_ts:
+                old_price = p
+            else:
                 break
-        if base is None:
-            base = hist[0][1]
-        cur = hist[-1][1]
-        if base == 0:
+        if old_price is None:
             return None
-        return ((cur - base) / base) * 100.0
+        cur_price = hist[-1][1]
+        return ((cur_price - old_price) / old_price) * 100.0
 
-    def _should_alert(self, coin, price):
-        """
-        ✅ 의미 있는 구간 기준 + 쿨타임 예외(추가 급변)
-        """
-        ch15 = self._pct_change_since(coin, 15 * 60)
-        ch60 = self._pct_change_since(coin, 60 * 60)
+    def _should_brief_now(self) -> List[str]:
+        now = self._now()
+        hhmm = now.strftime("%H:%M")
+        fired = []
+        for t in BRIEF_TIMES:
+            if hhmm == t and self._brief_last_date.get(t) != now.date():
+                fired.append(t)
+        return fired
 
-        last_t = self.last_alert_time.get(coin)
-        in_cooldown = False
-        if last_t and (now_kst() - last_t).total_seconds() < self.cooldown_sec:
-            in_cooldown = True
+    def _mark_brief_sent(self, t: str) -> None:
+        self._brief_last_date[t] = self._now().date()
 
-        # 기본 트리거
-        base_trigger = False
-        reasons = []
-        if ch15 is not None and abs(ch15) >= self.th_15m:
-            base_trigger = True
-            reasons.append(f"15분 {ch15:+.2f}%")
-        if ch60 is not None and abs(ch60) >= self.th_60m:
-            base_trigger = True
-            reasons.append(f"1시간 {ch60:+.2f}%")
+    def _format_brief(self) -> str:
+        now = self._now().strftime("%Y-%m-%d %H:%M")
+        lines = [f"🟨 {SERVICE_NAME} 정기 브리핑 ({now} KST)"]
+        for sym in SYMBOLS:
+            p, chg24 = self._binance_24h(sym)
+            if p is None:
+                continue
+            if chg24 is None:
+                lines.append(f"- {sym}: 현재가 {p:,.2f}")
+            else:
+                lines.append(f"- {sym}: 현재가 {p:,.2f} / 24시간 {chg24:+.2f}%")
+        return "\n".join(lines)
 
-        # 쿨타임 중 추가 급변(알림가 대비)
-        if coin not in self.last_alert_price:
-            self.last_alert_price[coin] = price
-            self._save_state()
-            return (False, "", ch15, ch60)
-
-        base = self.last_alert_price[coin]
-        ch_from_alert = ((price - base) / base) * 100.0 if base else 0.0
-
-        if in_cooldown and abs(ch_from_alert) >= self.escalate_extra_pct:
-            return (True, f"🚨 추가 급변(쿨타임 무시): 알림가 대비 {ch_from_alert:+.2f}%", ch15, ch60)
-
-        if (not in_cooldown) and base_trigger:
-            return (True, " / ".join(reasons), ch15, ch60)
-
-        return (False, "", ch15, ch60)
-
-    def _send_llm_or_plain(self, title: str, context: str):
-        if not self.brief_use_llm:
-            self.telegram.send_message(f"{title}\n{context}")
-            return
-
-        system_prompt = (
-            "너는 '리스크 매니저'다. 과장하지 말고 드라이하게 정리해라. "
-            "매수/매도 지시처럼 보이는 말은 금지. "
-            "체크리스트와 관찰 포인트 중심으로 작성해라."
-        )
+    def _maybe_llm(self, symbol: str, price: float, pct15: Optional[float], pct60: Optional[float], pct10: Optional[float]) -> str:
+        if not _chat:
+            return ""
         try:
-            msg = _chat(system_prompt, context)
-        except Exception:
-            msg = f"{title}\n{context}"
-        self.telegram.send_message(msg)
+            system = "너는 'The Whale Hunter'의 시장 관측 애널리스트다. 투자 조언이 아니라 시장 설명만 드라이하게 제공한다."
+            user = f"심볼={symbol}, 가격={price}, 10m={pct10}, 15m={pct15}, 60m={pct60}. 지금 상황을 3~5줄로 설명해줘."
+            return _chat(system, user) or ""
+        except Exception as e:
+            print(f"⚠️ [LLM] 실패: {e}", flush=True)
+            return ""
 
-    def _maybe_send_briefs(self):
-        """
-        ✅✅ 정기 브리핑(생존 신호)
-        - 매일 09:00 / 21:00 1회씩
-        """
-        t = now_kst()
-        today = t.date().isoformat()
-        cur_hhmm = hhmm(t)
+    def _collect_news(self) -> str:
+        if not self.news:
+            return ""
+        try:
+            items = self.news.fetch(limit=8)
+            lines = []
+            for it in items[:3]:
+                title = it.get("title") if isinstance(it, dict) else str(it)
+                link = it.get("link") if isinstance(it, dict) else ""
+                if link:
+                    lines.append(f"- {title}\n  {link}")
+                else:
+                    lines.append(f"- {title}")
+            return "\n".join(lines)
+        except Exception as e:
+            print(f"⚠️ [News] 실패: {e}", flush=True)
+            return ""
 
-        for bt in self.brief_times:
-            if cur_hhmm >= bt and self.sent_brief_dates.get(bt) != today:
-                lines = [f"🟨 [Moneybag] 정기 브리핑 ({t.strftime('%Y-%m-%d %H:%M')})"]
-                for c in self.targets:
-                    p = self.get_binance_price(c)
-                    if p is None:
-                        continue
-                    self._append_history(c, p)
-                    ch60 = self._pct_change_since(c, 60 * 60)
-                    ch24 = self.get_binance_24h_change_pct(c)
-                    parts = [f"현재가 {p:,.2f}"]
-                    if ch60 is not None:
-                        parts.append(f"1시간 {ch60:+.2f}%")
-                    if ch24 is not None:
-                        parts.append(f"24시간 {ch24:+.2f}%")
-                    lines.append(f"- {c}: " + " / ".join(parts))
+    def _format_alert(self, symbol: str, price: float, pct15: Optional[float], pct60: Optional[float], pct10: Optional[float],
+                      reason: str, extra_news: str = "", llm_comment: str = "") -> str:
+        now = self._now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            f"🚨 {SERVICE_NAME} 급변 알림 ({now} KST)",
+            f"- {symbol}: 현재가 {price:,.2f}",
+            f"- 사유: {reason}",
+        ]
+        if pct10 is not None:
+            lines.append(f"- 10분 변화: {pct10:+.2f}%")
+        if pct15 is not None:
+            lines.append(f"- 15분 변화: {pct15:+.2f}%")
+        if pct60 is not None:
+            lines.append(f"- 60분 변화: {pct60:+.2f}%")
+        if extra_news:
+            lines += ["", "📰 관련 뉴스", extra_news]
+        if llm_comment:
+            lines += ["", "🤖 AI 코멘트", llm_comment.strip()]
+        return "\n".join(lines)
 
-                self._send_llm_or_plain(lines[0], "\n".join(lines))
-                self.sent_brief_dates[bt] = today
-                self._save_state()
+    def run_forever(self):
+        print("🦅 [System] Moneybag(=The Whale Hunter) Watchdog 시작", flush=True)
 
-    def check_market(self):
-        self._touch_heartbeat()
-        print(f"\r👀 Moneybag 감시 중... ({now_kst().strftime('%H:%M:%S')})", end="", flush=True)
+        if BRIEF_ON_START and not self._startup_brief_sent:
+            self.tg.send(self._format_brief())
+            self._startup_brief_sent = True
 
-        # ✅ 정기 브리핑(죽었는지 확인용)
-        self._maybe_send_briefs()
+        while not self._stop:
+            now = self._now()
 
-        # ✅ 급변 알림
-        for coin in self.targets:
-            price = self.get_binance_price(coin)
-            if price is None:
-                continue
-            self._append_history(coin, price)
+            # (A) 정기 브리핑
+            for t in self._should_brief_now():
+                msg = self._format_brief()
+                if BRIEF_USE_LLM and _chat:
+                    try:
+                        system = "너는 'The Whale Hunter'의 시장 브리핑 작성자다. 투자 조언 금지. 요약만."
+                        user = "아래 코인 시장(24h 변동)을 한 문단으로 요약해줘:\n" + msg
+                        msg += "\n\n🤖 AI 요약\n" + (_chat(system, user) or "")
+                    except Exception:
+                        pass
+                self.tg.send(msg)
+                self._mark_brief_sent(t)
 
-            ok, reason, ch15, ch60 = self._should_alert(coin, price)
-            if not ok:
-                continue
+            # (B) 가격 업데이트 + 알림 체크
+            for sym in SYMBOLS:
+                price = self._binance_price(sym)
+                if price is None:
+                    continue
 
-            # 알림 생성(LLM + 뉴스)
-            news_items = self.news_collector.collect_all()
-            news_text = "특이 뉴스 없음." if not news_items else "\n".join([f"- {item['title']}" for item in news_items[:3]])
+                self.price_hist[sym].append((now, price))
 
-            title = f"🚨 [Moneybag] {coin} 변동 감지"
-            ctx = (
-                f"[현재가] {price}\n"
-                f"[사유] {reason}\n"
-                f"[참고] 15분={ch15}, 1시간={ch60}\n"
-                f"[뉴스]\n{news_text}\n"
-            )
+                pct10 = self._pct_over_minutes(sym, 10)
+                pct15 = self._pct_over_minutes(sym, 15)
+                pct60 = self._pct_over_minutes(sym, 60)
 
-            try:
-                msg = _chat(
-                    "너는 'Moneybag 리스크 매니저'다. 과장 없이 상황을 설명하고 "
-                    "확인해야 할 포인트를 체크리스트로 제시해라. 매수/매도 지시는 금지.",
-                    ctx,
-                )
-            except Exception:
-                msg = f"{title}\n{ctx}"
+                reason = None
+                if pct10 is not None and abs(pct10) >= ACCEL_10M_PCT:
+                    reason = f"10분 급가속(≥ {ACCEL_10M_PCT:.2f}%)"
+                elif pct15 is not None and abs(pct15) >= TH_15M_PCT:
+                    reason = f"15분 급변(≥ {TH_15M_PCT:.2f}%)"
+                elif pct60 is not None and abs(pct60) >= TH_60M_PCT:
+                    reason = f"60분 급변(≥ {TH_60M_PCT:.2f}%)"
 
-            self.telegram.send_message(msg)
+                if not reason:
+                    continue
 
-            # 상태 업데이트
-            self.last_alert_price[coin] = price
-            self.last_alert_time[coin] = now_kst()
-            self._save_state()
+                last_t = self.last_alert_time.get(sym)
+                last_p = self.last_alert_price.get(sym)
+                cooldown_ok = (last_t is None) or ((now - last_t) >= timedelta(minutes=COOLDOWN_MIN))
+
+                bypass_ok = False
+                if not cooldown_ok and last_p:
+                    extra_move = ((price - last_p) / last_p) * 100.0
+                    if abs(extra_move) >= COOLDOWN_BYPASS_PCT:
+                        bypass_ok = True
+
+                if cooldown_ok or bypass_ok:
+                    extra_news = self._collect_news()
+                    llm_comment = self._maybe_llm(sym, price, pct15, pct60, pct10)
+                    alert_msg = self._format_alert(sym, price, pct15, pct60, pct10, reason, extra_news, llm_comment)
+                    self.tg.send(alert_msg)
+                    self.last_alert_time[sym] = now
+                    self.last_alert_price[sym] = price
+
+            print(f"\r👀 Moneybag 감시 중... ({self._now().strftime('%H:%M:%S')})", end="", flush=True)
+            time.sleep(POLL_INTERVAL_SEC)
+
+
+def main():
+    MarketWatchdog().run_forever()
 
 
 if __name__ == "__main__":
-    print("🦅 [System] Moneybag Watchdog 프로세스 시작")
-    sys.stdout.flush()
-
-    dog = MarketWatchdog()
-    print("🦅 [System] 감시 루프 진입.")
-
-    while True:
-        try:
-            dog.check_market()
-        except Exception as e:
-            print(f"\n❌ [Error] 루프 에러: {e}")
-            traceback.print_exc()
-        time.sleep(dog.poll_sec)
+    main()
