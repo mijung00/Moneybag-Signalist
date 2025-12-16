@@ -1,28 +1,111 @@
 import os
 import sys
+import json
+import secrets
+import pymysql
+import boto3
+import re
 import subprocess
+from flask import Flask, render_template, request, flash, redirect, url_for
+from pathlib import Path
 from datetime import datetime, timedelta
-from flask import Flask
+from botocore.exceptions import ClientError
 
+# ----------------------------------------------------------------
+# [1] 기본 설정 및 경로
+# ----------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.append(str(BASE_DIR))
+
+# S3Manager 가져오기 (배포 환경 고려)
+try:
+    from common.s3_manager import S3Manager
+except ImportError:
+    print("⚠️ common/s3_manager.py를 찾을 수 없거나 임포트 실패.")
+    S3Manager = None
+
+# [중요] AWS Elastic Beanstalk는 'application'이라는 변수를 찾습니다.
 application = Flask(__name__)
+app = application  # 로컬 실행 호환용 Alias
+application.secret_key = secrets.token_hex(16)
 
-# ==========================================
-# 🛠️ 공통 함수: 스크립트 실행기 (단발성 뉴스레터용)
-# ==========================================
+# ----------------------------------------------------------------
+# [2] 설정 로더 (AWS 환경변수 & Secrets Manager 통합)
+# ----------------------------------------------------------------
+class ConfigLoader:
+    def __init__(self):
+        self.region = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+        self.secrets_client = None
+
+    def _get_secrets_client(self):
+        if not self.secrets_client:
+            self.secrets_client = boto3.client("secretsmanager", region_name=self.region)
+        return self.secrets_client
+
+    def get_env(self, key, default=None):
+        value = os.getenv(key, default)
+        # 값이 없거나, 평문이면 그대로 반환
+        if not value or not value.startswith("arn:aws:secretsmanager"):
+            return value
+        
+        # ARN이면 Secrets Manager 조회
+        try:
+            client = self._get_secrets_client()
+            resp = client.get_secret_value(SecretId=value)
+            secret = resp.get("SecretString")
+            if secret and secret.strip().startswith("{"):
+                try:
+                    data = json.loads(secret)
+                    return data.get(key) or data.get("value") or secret
+                except json.JSONDecodeError:
+                    pass
+            return secret
+        except ClientError:
+            return value
+
+config = ConfigLoader()
+
+# DB & S3 설정 로드
+DB_HOST = config.get_env("DB_HOST")
+DB_PORT = int(config.get_env("DB_PORT", "3306"))
+DB_USER = config.get_env("DB_USER")
+DB_PASSWORD = config.get_env("DB_PASSWORD")
+DB_NAME = config.get_env("DB_NAME")
+TARGET_BUCKET = "fincore-output-storage" # [하드코딩]
+
+# S3 Manager 초기화
+s3_manager = None
+if S3Manager:
+    s3_manager = S3Manager(bucket_name=TARGET_BUCKET)
+    print(f"[INFO] S3 Manager initialized. Bucket: {TARGET_BUCKET}")
+
+# ----------------------------------------------------------------
+# [3] 헬퍼 함수들 (DB연결, 스크립트 실행, HTML 정제)
+# ----------------------------------------------------------------
+def get_db_connection():
+    """DB 연결 객체 반환"""
+    return pymysql.connect(
+        host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, db=DB_NAME,
+        charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
+    )
+
+def clean_html_content(raw_html):
+    """S3 HTML에서 <body> 태그 내부만 추출 (스타일 격리용)"""
+    if not raw_html: return None
+    body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
+    return body_match.group(1) if body_match else raw_html
+
 def run_script(folder_name, module_path, args=[]):
-    """특정 폴더의 모듈을 프로젝트 루트에서 실행하는 함수"""
-    # 1. 루트 폴더(Moneybag-Signalist-main)를 기준점으로 잡음
+    """
+    [태스크 러너용] 특정 모듈을 서브프로세스로 실행
+    """
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 2. 모듈 경로를 '폴더명.모듈명' 형태로 조합 (예: iceage.src.pipelines.daily_runner)
     full_module_path = f"{folder_name}.{module_path}"
-    
     cmd = [sys.executable, "-m", full_module_path] + args
     
     print(f"🚀 [Start Task] {full_module_path}")
-    
     try:
-        # 3. cwd(실행 위치)를 폴더 안이 아니라 'base_dir(루트)'로 설정!
+        # cwd를 프로젝트 루트로 설정하여 실행
         result = subprocess.run(cmd, cwd=base_dir, capture_output=True, text=True, encoding='utf-8')
         print(f"✅ Output:\n{result.stdout}")
         if result.stderr:
@@ -32,37 +115,9 @@ def run_script(folder_name, module_path, args=[]):
         print(f"❌ Exception: {e}")
         return f"EXCEPTION: {str(e)}"
 
-# ==========================================
-# 🦅 왓치독 실행기 (경비 대장 깨우기)
-# ==========================================
-# def kickstart_watchdog_manager():
-#     """
-#     서버 옆에 있는 watchdogs.py 파일을 백그라운드에서 실행합니다.
-#     """
-#     try:
-#         # 현재 폴더(C:\ubuntu)에 있는 watchdogs.py를 찾음
-#         current_dir = os.path.dirname(os.path.abspath(__file__))
-#         script_path = os.path.join(current_dir, "watchdogs.py")
-#
-#         print(f"🦅 [System] 왓치독 매니저를 실행합니다... ({script_path})")
-#         
-#         # Popen을 써야 웹서버가 멈추지 않고 계속 돌아감 (Non-blocking)
-#         # 로그는 웹서버 로그랑 같이 찍히도록 설정
-#         subprocess.Popen([sys.executable, script_path], cwd=current_dir)
-#         
-#     except Exception as e:
-#         print(f"❌ [Critical] 왓치독 실행 실패: {e}")
-
-# 🔥 서버가 켜질 때 왓치독 매니저도 같이 실행!
-# (로컬 개발 환경에서 저장할 때마다 두 번 실행되는 것 방지)
-# if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-#     kickstart_watchdog_manager()
-
-
-
-# ==========================================
-# 🌐 플라스크 라우트 (뉴스레터 및 헬스체크)
-# ==========================================
+# ================================================================
+# 🌐 [PART A] 태스크 러너 라우트 (AWS/Cron 호출용)
+# ================================================================
 @application.route('/run_moneybag_morning', methods=['GET', 'POST'])
 def moneybag_morning():
     return run_script("moneybag", "src.pipelines.daily_runner", ["morning"]), 200
@@ -93,9 +148,111 @@ def update_stock_data():
             logs.append(f" - {module}: {msg}")
     return "\n".join(logs), 200
 
-@application.route('/', methods=['GET'])
+# ================================================================
+# 🌐 [PART B] 웹사이트 UI 라우트 (메인 & 아카이브)
+# ================================================================
+@application.route('/', methods=['GET', 'POST'])
+def index():
+    # 구독 로직 (POST 요청 시)
+    if request.method == 'POST':
+        email = request.form.get('email')
+        name = request.form.get('name')
+        selected_services = request.form.getlist('services') 
+        agree_terms = request.form.get('agree_terms')
+
+        if not email or not agree_terms:
+            flash("이메일 입력 및 약관 동의는 필수입니다.", "error")
+            return redirect(url_for('index'))
+
+        sub_signalist = 1 if 'signalist' in selected_services else 0
+        sub_moneybag = 1 if 'moneybag' in selected_services else 0 
+
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cursor:
+                # 기존 구독자 체크
+                cursor.execute("SELECT id FROM subscribers WHERE email = %s", (email,))
+                if cursor.fetchone():
+                    sql = "UPDATE subscribers SET is_signalist=%s, is_moneybag=%s, is_active=1 WHERE email=%s"
+                    cursor.execute(sql, (sub_signalist, sub_moneybag, email))
+                    flash("구독 정보가 업데이트되었습니다. ✅", "success")
+                else:
+                    token = secrets.token_urlsafe(16)
+                    sql = "INSERT INTO subscribers (email, name, unsubscribe_token, is_signalist, is_moneybag) VALUES (%s, %s, %s, %s, %s)"
+                    cursor.execute(sql, (email, name, token, sub_signalist, sub_moneybag))
+                    flash(f"{name}님, 구독해주셔서 감사합니다! 🎉", "success")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[DB Error] {e}")
+            flash("일시적인 오류가 발생했습니다.", "error")
+        return redirect(url_for('index'))
+
+    return render_template('index.html')
+
+@application.route('/archive/<service_name>')
+def archive_latest(service_name):
+    # 최신(어제) 날짜로 리다이렉트
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    return redirect(url_for('archive_view', service_name=service_name, date_str=yesterday))
+
+@application.route('/archive/<service_name>/<date_str>')
+def archive_view(service_name, date_str):
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return redirect(url_for('archive_latest', service_name=service_name))
+
+    today = datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    
+    prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
+    next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    is_locked = target_date.date() >= today.date()
+    display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
+
+    content_html = None
+    
+    # 잠금 상태가 아닐 때만 S3 데이터 로드
+    if not is_locked and s3_manager:
+        if service_name == 'signalist':
+            s3_key = f"iceage/out/Signalist_Daily_{date_str}.html"
+            raw_html = s3_manager.get_text_content(s3_key)
+            content_html = clean_html_content(raw_html)
+            
+        elif service_name == 'moneybag' or service_name == 'whalehunter':
+            morning_key = f"moneybag/data/out/Moneybag_Letter_Morning_{date_str}.html"
+            night_key = f"moneybag/data/out/Moneybag_Letter_Night_{date_str}.html"
+            
+            # 머니백은 Morning/Night 두 개를 합쳐서 보여줌
+            morning_html = clean_html_content(s3_manager.get_text_content(morning_key))
+            night_html = clean_html_content(s3_manager.get_text_content(night_key))
+            
+            parts = []
+            if morning_html: parts.append(morning_html)
+            if night_html:
+                if morning_html:
+                    # 중간 구분선
+                    parts.append('<div style="margin: 60px 0; border-top: 2px dashed #e5e7eb;"></div>')
+                parts.append(night_html)
+            if parts:
+                content_html = "".join(parts)
+
+    return render_template(
+        'archive_view.html',
+        service_name=service_name,
+        display_name=display_name,
+        date_str=date_str,
+        content_html=content_html,
+        prev_date=prev_date,
+        next_date=next_date,
+        is_locked=is_locked,
+        today_str=today_str 
+    )
+
+@application.route('/health')
 def health_check():
     return "OK", 200
 
-if __name__ == "__main__":
-    application.run(port=5000)
+if __name__ == '__main__':
+    application.run(port=5000, debug=True)
