@@ -69,7 +69,7 @@ class MarketWatchdog:
         self.escalate_extra_pct = 1.5
 
         # 정기 “생존 신호” 브리핑 시간(죽었는지 확인용) - 코인은 24시간이니 하루 2번 추천
-        self.brief_times = ["09:00", "18:35"]
+        self.brief_times = ["09:00", "19:55"]
         self.brief_use_llm = False  # 정기 브리핑까지 AI 돌리면 비용/잡음 증가(기본 False)
         # =========================
 

@@ -81,7 +81,7 @@ class StockWatchdog:
 
         # 정기 “생존 신호” 브리핑 시간(죽었는지 확인용)
         self.open_brief_time = "09:05"   # 장 시작 5분 후
-        self.close_brief_time = "18:35"  # 장 마감 후
+        self.close_brief_time = "19:55"  # 장 마감 후
         self.brief_use_llm = True        # 정기 브리핑에도 AI 설명을 붙일지
         # =========================
 
