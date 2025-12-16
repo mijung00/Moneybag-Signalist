@@ -25,6 +25,20 @@ class S3Manager:
         except Exception as e:
             print(f"❌ [Error] {e}")
             return False
+        
+    def get_text_content(self, s3_key):
+        """
+        [NEW] S3에 있는 파일을 텍스트(String)로 읽어옵니다. (웹 뷰어용)
+        """
+        try:
+            s3_key = s3_key.replace("\\", "/")
+            response = self.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
+            return response['Body'].read().decode('utf-8')
+        except self.s3.exceptions.NoSuchKey:
+            return None
+        except Exception as e:
+            print(f"❌ [Read Error] {e}")
+            return None
 
     def download_file(self, s3_file_path, local_file_path):
         """단일 파일 다운로드"""

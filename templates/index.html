@@ -24,8 +24,10 @@
     <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div class="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
             <div class="flex items-center space-x-2">
-                <i class="fa-solid fa-chart-line text-blue-600 text-2xl"></i>
-                <span class="text-xl font-black tracking-tight text-gray-900">FINCORE</span>
+                <a href="/" class="flex items-center space-x-2">
+                    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Fincore Logo" class="h-8 w-auto">
+                    <span class="text-xl font-black tracking-tight text-gray-900">FINCORE</span>
+</a>
             </div>
             <a href="#subscribe" class="text-sm font-bold text-blue-600 hover:text-blue-800">구독하기</a>
         </div>

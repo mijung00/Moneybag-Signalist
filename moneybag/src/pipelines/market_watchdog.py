@@ -92,6 +92,19 @@ def _extract_secret_value(raw: str, env_key: str) -> str:
             return s
     return s
 
+def _normalize_env_json(key: str) -> None:
+    """
+    환경변수 값이 JSON 문자열 형태로 들어온 경우(예: {"OPENAI_API_KEY":"sk-..."}),
+    실제 value만 뽑아서 os.environ[key]에 다시 세팅한다.
+    """
+    raw = os.getenv(key, "")
+    if not raw:
+        return
+    val = _extract_secret_value(raw, key)
+    if val and val != raw:
+        os.environ[key] = val
+
+
 
 @dataclass
 class TelegramClient:
@@ -119,6 +132,8 @@ class MarketWatchdog:
         token = _extract_secret_value(tok_raw, "TELEGRAM_BOT_TOKEN_MONEYBAG")
         chat_id = _extract_secret_value(chat_raw, "TELEGRAM_CHAT_ID_MONEYBAG")
         self.tg = TelegramClient(token=token, chat_id=chat_id)
+        _normalize_env_json("OPENAI_API_KEY")
+
 
         self.news = CryptoNewsRSS() if CryptoNewsRSS else None
 
@@ -201,6 +216,7 @@ class MarketWatchdog:
         return "\n".join(lines)
 
     def _maybe_llm(self, symbol: str, price: float, pct15: Optional[float], pct60: Optional[float], pct10: Optional[float]) -> str:
+        _normalize_env_json("OPENAI_API_KEY")
         if not _chat:
             return ""
         try:

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ display_name }} - Archive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* 신문 느낌을 위한 폰트 설정 */
+        .font-serif { font-family: 'Times New Roman', 'Nanum Myeongjo', serif; }
+        
+        /* 블러 효과 및 구독 유도 오버레이 */
+        .blur-content {
+            filter: blur(6px);
+            user-select: none;
+            pointer-events: none;
+        }
+        .lock-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            text-align: center;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-[#fdfbf7] text-gray-900 min-h-screen flex flex-col"> 
+    
+    <header class="border-b border-gray-300 bg-white sticky top-0 z-50">
+        <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+            <div class="flex items-center space-x-6">
+                <a href="/" class="flex items-center space-x-2">
+                    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Fincore" class="h-8 w-auto">
+                    <span class="text-xl font-black tracking-tight text-gray-900">FINCORE</span>
+                </a>
+
+                <nav class="hidden md:flex space-x-4 text-sm font-bold text-gray-500">
+                    <a href="/archive/signalist" class="{{ 'text-blue-700' if service_name == 'signalist' else 'hover:text-gray-800' }}">The Signalist</a>
+                    <a href="/archive/whalehunter" class="{{ 'text-orange-700' if service_name == 'whalehunter' else 'hover:text-gray-800' }}">The Whale Hunter</a>
+                </nav>
+            </div>
+            <a href="/" class="bg-black text-white px-4 py-1.5 rounded-full text-xs font-bold hover:bg-gray-800 transition">
+                구독하기
+            </a>
+        </div>
+    </header>
+
+    <div class="max-w-3xl mx-auto px-4 w-full mt-8 mb-4">
+        <div class="flex items-center justify-between border-b-2 border-black pb-2">
+            <a href="/archive/{{ service_name }}/{{ prev_date }}" class="text-gray-400 hover:text-black transition p-2">
+                <i class="fa-solid fa-arrow-left text-xl"></i>
+            </a>
+            
+            <div class="text-center">
+                <div class="text-xs text-gray-500 font-bold tracking-widest uppercase mb-1">ISSUE DATE</div>
+                <div class="text-2xl font-serif font-bold">{{ date_str }}</div>
+            </div>
+
+            {% if is_locked %}
+                 <span class="text-gray-200 p-2 cursor-not-allowed"><i class="fa-solid fa-arrow-right text-xl"></i></span>
+            {% else %}
+                <a href="/archive/{{ service_name }}/{{ next_date }}" class="text-gray-400 hover:text-black transition p-2">
+                    <i class="fa-solid fa-arrow-right text-xl"></i>
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <main class="flex-grow max-w-3xl mx-auto px-6 w-full relative mb-20">
+        
+        <div class="text-center my-6">
+            <span class="inline-block px-3 py-1 rounded text-xs font-bold tracking-wider uppercase mb-4
+                {{ 'bg-blue-100 text-blue-800' if service_name == 'signalist' else 'bg-orange-100 text-orange-800' }}">
+                {{ display_name }}
+            </span>
+        </div>
+
+        <div class="relative min-h-[400px]">
+            <div class="{{ 'blur-content opacity-50' if is_locked else '' }} prose prose-lg max-w-none font-serif text-gray-800">
+                {{ content_html | safe }}
+                
+                {% if is_locked %}
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. 시장의 변동성은 예측 불가능하지만 데이터는 거짓말을 하지 않습니다. 구독자 여러분에게만 공개되는 핵심 분석 데이터가 여기에 포함되어 있습니다.</p>
+                <p>이번 하락장의 원인은 거시경제 지표와 온체인 데이터의 괴리에서 발생했으며... (중략) ... 고래들은 이미 매집을 시작했습니다.</p>
+                <p>구체적인 매수 타점과 시그널은 유료 리포트에서 확인하실 수 있습니다.</p>
+                {% endif %}
+            </div>
+
+            {% if is_locked %}
+            <div class="lock-overlay bg-white/90 p-8 rounded-2xl shadow-xl border border-gray-100 backdrop-blur-sm">
+                <div class="text-4xl mb-4">🔒</div>
+                <h3 class="text-xl font-bold mb-2">오늘의 리포트는 구독자 전용입니다</h3>
+                <p class="text-gray-500 mb-6 text-sm">
+                    The Signalist와 The Whale Hunter의<br>
+                    가장 빠른 분석을 매일 아침 받아보세요.
+                </p>
+                <a href="/#subscribe" class="inline-block bg-black text-white px-8 py-3 rounded-xl font-bold hover:scale-105 transition-transform shadow-lg">
+                    무료 구독하고 바로 보기
+                </a>
+                <p class="text-xs text-gray-400 mt-4">
+                    * 지난 리포트(Yesterday)는 무료로 열람 가능합니다.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+
+    </main>
+
+    <footer class="bg-white border-t border-gray-200 py-8 text-center text-xs text-gray-400">
+        &copy; 2025 Fincore. All rights reserved.
+    </footer>
+
+</body>
+</html>
