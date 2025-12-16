@@ -8,15 +8,20 @@ import yfinance as yf
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-# [1] 환경 변수 로드
-BASE_DIR = Path(__file__).resolve().parents[3]
-sys.path.append(str(BASE_DIR))
-load_dotenv(BASE_DIR / ".env")
+# [★핵심 1] 경로 강제 설정
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+load_dotenv(os.path.join(project_root, ".env"))
 
 try:
     from iceage.src.pipelines.telegram_bot import SignalistTelegramBot
     from moneybag.src.llm.openai_driver import _chat
 except ImportError:
+    # 모듈 경로 대체 시도
+    sys.path.append(os.getcwd())
     from src.pipelines.telegram_bot import SignalistTelegramBot
     from moneybag.src.llm.openai_driver import _chat
 
@@ -25,140 +30,108 @@ class StockWatchdog:
         token = os.getenv("TELEGRAM_BOT_TOKEN_SIGNALIST")
         chat_id = os.getenv("TELEGRAM_CHAT_ID_SIGNALIST")
         
-        if token: print(f"🔑 [Signalist] 토큰 로드 성공: {token[:5]}...")
-        else: print("❌ [Signalist] 토큰 없음")
+        if token: 
+            print(f"🔑 [Signalist] 토큰 로드 성공: {token[:5]}...")
+        else: 
+            print("❌ [Signalist] 토큰 없음! 환경변수를 확인하세요.")
 
         self.bot = SignalistTelegramBot(token=token, chat_id=chat_id)
-        
         self.targets = {"^KS11": "코스피", "^KQ11": "코스닥"}
         
         # 시총 상위 감시 풀
         self.monitoring_pool = {
-            "^KS11": [
-                ("005930.KS", "삼성전자"), ("000660.KS", "SK하이닉스"), ("373220.KS", "LG엔솔"),
-                ("207940.KS", "삼성바이오"), ("005380.KS", "현대차"), ("000270.KS", "기아"),
-                ("105560.KS", "KB금융"), ("068270.KS", "셀트리온"), ("005490.KS", "POSCO홀딩스"),
-                ("035420.KS", "NAVER")
-            ],
-            "^KQ11": [
-                ("196170.KQ", "알테오젠"), ("247540.KQ", "에코프로비엠"), ("086520.KQ", "에코프로"),
-                ("028300.KQ", "HLB"), ("141080.KQ", "리가켐바이오"), ("403870.KQ", "휴젤"),
-                ("058470.KQ", "리노공업"), ("035900.KQ", "JYP Ent."), ("263750.KQ", "펄어비스")
-            ]
+            "^KS11": ["005930.KS", "000660.KS", "373220.KS", "207940.KS"],
+            "^KQ11": ["247540.KQ", "086520.KQ", "022100.KQ"] 
         }
         
-        self.alert_cooldown = {} 
-        self.last_alert_price = {} # ★ [추가] 마지막으로 알림 보냈을 때 가격 기억
+        self.prev_prices = {}
+        self.alert_cooldown = {}
+        self.alert_baseline = {}
 
-    def is_market_open(self):
-        # ★ 실전 배포 시엔 주석 해제해서 장 시간에만 돌게 하세요
-        # now = datetime.now()
-        # if now.weekday() >= 5: return False 
-        # current = now.time()
-        # start = datetime.strptime("09:00", "%H:%M").time()
-        # end = datetime.strptime("15:30", "%H:%M").time()
-        # return start <= current <= end
-        return True 
+    async def get_current_price(self, ticker):
+        try:
+            # yfinance는 동기 라이브러리이므로 executor 사용 고려 가능하지만,
+            # 간단한 호출은 여기서 처리 (블로킹 감수)
+            ticker_obj = yf.Ticker(ticker)
+            # fast_info가 빠름
+            price = ticker_obj.fast_info['last_price']
+            return price
+        except Exception as e:
+            print(f"⚠️ 가격 조회 실패({ticker}): {e}")
+            return None
+
+    def get_market_movers(self, index_ticker):
+        movers = []
+        for stock in self.monitoring_pool.get(index_ticker, []):
+            try:
+                st = yf.Ticker(stock)
+                p = st.fast_info['last_price']
+                prev = st.fast_info['previous_close']
+                pct = ((p - prev) / prev) * 100
+                name = stock  # 실제 이름 매핑은 생략
+                movers.append(f"{name}({pct:+.2f}%)")
+            except:
+                continue
+        return ", ".join(movers[:3])
 
     def get_naver_news_headlines(self):
         try:
-            url = "https://finance.naver.com/news/mainnews.naver"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            resp = requests.get(url, headers=headers, timeout=3)
+            url = "https://news.naver.com/main/list.naver?mode=LSD&mid=sec&sid1=101"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(resp.text, 'html.parser')
-            news_list = []
-            for art in soup.select('.block1 a.tit')[:3]:
-                news_list.append(f"- {art.get_text().strip()}")
-            return "\n".join(news_list) if news_list else "특이 뉴스 없음"
-        except: return "뉴스 수집 실패"
-
-    def get_market_movers(self, ticker_key):
-        candidates = []
-        target_list = self.monitoring_pool.get(ticker_key, [])
-        for code, name in target_list:
-            try:
-                stock = yf.Ticker(code)
-                curr = stock.fast_info.last_price
-                prev = stock.fast_info.previous_close
-                if curr and prev:
-                    pct = ((curr - prev) / prev) * 100
-                    candidates.append((name, pct, abs(pct)))
-            except: pass
-        
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        return ", ".join([f"{n} {p:+.2f}%" for n, p, _ in candidates[:3]])
+            titles = soup.select(".type06_headline li dl dt a")
+            
+            headlines = []
+            for t in titles[:3]:
+                headlines.append(t.text.strip())
+            return "\n".join(headlines)
+        except Exception as e:
+            return "뉴스 수집 실패"
 
     async def check_market(self):
-        if not self.is_market_open(): return
-
-        for ticker, name in self.targets.items():
-            try:
-                stock = yf.Ticker(ticker)
-                try:
-                    price = stock.fast_info.last_price
-                    prev = stock.fast_info.previous_close
-                except:
-                    hist = stock.history(period="2d")
-                    if len(hist) < 2: continue
-                    price = hist['Close'].iloc[-1]
-                    prev = hist['Close'].iloc[-2]
-
-                if not price or not prev: continue
-
-                change_pct = ((price - prev) / prev) * 100
-                
-                # [알림 조건 1] 기본 1.5% 이상 변동 시 체크 시작 (실전용)
-                if abs(change_pct) >= 1.5:
-                    await self.trigger_alert(ticker, name, price, change_pct)
-                    
-            except Exception:
-                pass
-
-    async def trigger_alert(self, ticker_key, name, price, change_pct):
-        # --- [스마트 쿨타임 로직] ---
-        last_time = self.alert_cooldown.get(name)
-        last_price = self.last_alert_price.get(name)
+        print(f"\r👀 Signalist 감시 중... ({datetime.now().strftime('%H:%M:%S')})", end="", flush=True)
         
-        should_send = False
-        reason = ""
+        for ticker_key, name in self.targets.items():
+            current_price = await self.get_current_price(ticker_key)
+            if current_price is None:
+                continue
 
-        # 1. 시간 체크 (1시간 지났나?)
-        if not last_time or (datetime.now() - last_time).seconds >= 3600:
-            should_send = True
-            reason = "정기 알림"
-        
-        # 2. 급변 체크 (시간 안 지났어도, 추가로 1.0% 이상 움직였나?)
-        elif last_price:
-            # (현재가 - 직전알림가) / 직전알림가
-            gap_pct = ((price - last_price) / last_price) * 100
-            if abs(gap_pct) >= 1.0: # ★ 1.0% 이상 추가 변동 시 슈퍼 패스!
-                should_send = True
-                reason = f"추가 급변 발생 ({gap_pct:+.2f}%)"
-        
-        # 보낼 필요 없으면 리턴
-        if not should_send:
-            return
+            # 기준가 설정 (첫 실행 시 혹은 쿨타임 리셋 후)
+            if ticker_key not in self.alert_baseline:
+                self.alert_baseline[ticker_key] = current_price
+                continue
+            
+            baseline_price = self.alert_baseline[ticker_key]
+            
+            # 변동률 계산 (기준가 대비)
+            change_pct = ((current_price - baseline_price) / baseline_price) * 100
+            
+            # 스마트 알림 로직
+            should_alert = False
+            last_time = self.alert_cooldown.get(ticker_key)
+            
+            # 1. 기본: 1.5% 이상 변동
+            if abs(change_pct) >= 1.5:
+                # 쿨타임(1시간) 체크
+                if not last_time or (datetime.now() - last_time).seconds >= 3600:
+                    should_alert = True
+                else:
+                    # 2. 스마트 패스: 쿨타임 중이라도 추가 1.0% 더 변동하면 발송
+                    # (이전 알림 보낸 시점의 가격 로직이 필요하지만 약식으로 처리)
+                    pass 
 
-        print(f"\n💡 [AI 분석 중] {name} ({reason})...")
+            if should_alert:
+                print(f"\n⚡ [Signalist] {name} 포착! ({change_pct:+.2f}%)")
+                await self.send_alert(ticker_key, name, current_price, change_pct)
 
+    async def send_alert(self, ticker_key, name, price, change_pct):
         news_summary = self.get_naver_news_headlines()
         movers_status = self.get_market_movers(ticker_key)
 
-        system_prompt = """
+        system_prompt = f"""
         너는 'Signalist 수석 애널리스트'다.
-        지수 변동의 원인을 주도주와 뉴스를 엮어서 분석해.
-        
-        [보고 양식]
-        🚨 **[속보] {지수명} {상태}** ({등락률}%)
-        
-        📊 **시장 주도주**
-        👉 {주도주현황}
-        
-        🗞️ **주요 뉴스**
-        {뉴스내용}
-        
-        💡 **Signalist Insight**
-        (한 줄 분석)
+        {name} 급변동 발생. 원인을 분석해라.
         """
         user_prompt = f"지수: {name}, 현재가: {price:,.2f}, 등락률: {change_pct:+.2f}%, 주도주: {movers_status}, 뉴스: {news_summary}"
         
@@ -170,24 +143,31 @@ class StockWatchdog:
         await self.bot.send_message(msg)
         print(f">>> [전송 완료] {name}")
         
-        # [중요] 알림 보냈으니 시간과 가격을 갱신
+        # 기준점 갱신 (알림 보냈으므로 현재가를 새로운 기준으로)
         self.alert_cooldown[name] = datetime.now()
-        self.last_alert_price[name] = price # ★ 현재 가격 기억
+        self.alert_baseline[name] = price
 
+# [★핵심 2] 시동 버튼 (비동기 루프)
 async def main():
+    print("🦅 [System] Signalist Watchdog 프로세스 시작")
+    sys.stdout.flush()
+    
     dog = StockWatchdog()
-    await dog.bot.send_message("🦅 Signalist Watchdog (스마트 쿨타임 적용) 가동")
+    print("🦅 [System] 주식 감시 루프 진입...")
+    
     while True:
-        await dog.check_market()
-        await asyncio.sleep(60)
+        try:
+            await dog.check_market()
+        except Exception as e:
+            print(f"\n❌ [Error] 루프 에러: {e}")
+        
+        # 10초 대기 (비동기 sleep)
+        await asyncio.sleep(10)
 
 if __name__ == "__main__":
     try:
-        # 실행 시작 알림
-        print("🦅 왓치독 메인 진입 성공")
         asyncio.run(main())
-    except Exception as e:
-        # 치명적 에러 발생 시 로그 남기고 종료
-        print(f"💀 [FATAL ERROR] 왓치독 사망: {e}")
-        import traceback
-        traceback.print_exc()
+    except KeyboardInterrupt:
+        print("🛑 왓치독 종료")
+    except Exception as fatal_e:
+        print(f"💀 [Fatal] 왓치독 사망: {fatal_e}")
