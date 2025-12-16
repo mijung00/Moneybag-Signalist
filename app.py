@@ -154,6 +154,7 @@ def archive_view(service_name, date_str):
     target_date = datetime.strptime(date_str, "%Y-%m-%d")
     today = datetime.now()
     
+    # 네비게이션
     prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
     
@@ -163,20 +164,56 @@ def archive_view(service_name, date_str):
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
     theme_color = "blue" if service_name == 'signalist' else "orange"
 
-    # S3에서 HTML 본문 가져오기
     content_html = None
-    if not is_locked and s3_manager:
-        # 경로 예: signalist/2025-12-16.html
-        s3_key = f"{service_name}/{date_str}.html"
-        content_html = s3_manager.get_text_content(s3_key)
     
+    # S3 데이터 로드
+    if not is_locked and s3_manager:
+        if service_name == 'signalist':
+            # 시그널리스트: 하루 1개
+            s3_key = f"iceage/out/Signalist_Daily_{date_str}.html"
+            content_html = s3_manager.get_text_content(s3_key)
+            
+        elif service_name == 'moneybag' or service_name == 'whalehunter':
+            # [수정] 머니백: Morning & Night 두 개 다 체크
+            morning_key = f"moneybag/data/out/Moneybag_Letter_Morning_{date_str}.html"
+            night_key = f"moneybag/data/out/Moneybag_Letter_Night_{date_str}.html"
+            
+            morning_html = s3_manager.get_text_content(morning_key)
+            night_html = s3_manager.get_text_content(night_key)
+            
+            # 두 내용을 하나로 합치기
+            parts = []
+            
+            # 1. Morning
+            if morning_html:
+                parts.append(morning_html)
+            
+            # 2. Night (Morning이 있으면 구분선 추가)
+            if night_html:
+                if morning_html:
+                    # 중간 구분선 (Morning과 Night 사이)
+                    divider = """
+                    <div style="margin: 40px 0; text-align: center; border-top: 1px dashed #ccc; position: relative;">
+                        <span style="background: #fff; padding: 0 10px; position: relative; top: -12px; color: #888; font-weight: bold;">
+                            🌙 Night Edition
+                        </span>
+                    </div>
+                    """
+                    parts.append(divider)
+                parts.append(night_html)
+            
+            # 내용이 하나라도 있으면 합쳐서 저장
+            if parts:
+                content_html = "".join(parts)
+
+    # 데이터 없음 처리
     if not content_html:
         if is_locked:
             msg_title = "🔒 오늘의 리포트는 준비 중입니다."
-            msg_desc = "매일 아침 8시에 발행됩니다."
+            msg_desc = "매일 아침 8시 / 저녁 9시에 발행됩니다."
         else:
             msg_title = "📭 해당 날짜의 리포트가 없습니다."
-            msg_desc = f"({date_str} 데이터 없음)"
+            msg_desc = f"({date_str} 데이터가 아직 S3에 없습니다)"
             
         content_html = f"""
         <div class="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">

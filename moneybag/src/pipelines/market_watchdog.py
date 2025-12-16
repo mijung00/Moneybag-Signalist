@@ -23,11 +23,11 @@ SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
 POLL_INTERVAL_SEC = 10
 
 # “의미 있는 움직임” 기준 (15분 / 60분)
-TH_15M_PCT = 0.8     # 예: 0.8% 이상이면 알림 고려
-TH_60M_PCT = 2.5     # 예: 2.5% 이상이면 알림 고려
+TH_15M_PCT = 1.5     # 예: 0.8% 이상이면 알림 고려
+TH_60M_PCT = 3.0     # 예: 2.5% 이상이면 알림 고려
 
 # 10분 급가속(추세 가속) 기준
-ACCEL_10M_PCT = 1.2  # 예: 10분에 1.2% 이상이면 “급가속” 알림
+ACCEL_10M_PCT = 2.0  # 예: 10분에 1.2% 이상이면 “급가속” 알림
 
 # 같은 심볼 연속 알림 쿨타임 (기본 30분)
 COOLDOWN_MIN = 30
@@ -147,6 +147,9 @@ class MarketWatchdog:
         self._stop = False
         signal.signal(signal.SIGTERM, self._on_stop)
         signal.signal(signal.SIGINT, self._on_stop)
+        
+        self.last_global_alert_time = None
+        self.last_global_alert_anchor = None  # 기준 가격(대표 심볼 가격)
 
     def _on_stop(self, *_):
         self._stop = True
@@ -321,13 +324,41 @@ class MarketWatchdog:
                     if abs(extra_move) >= COOLDOWN_BYPASS_PCT:
                         bypass_ok = True
 
+                # ✅ 우루루 방지: 서비스 전체 쿨타임
+                g_last_t = self.last_global_alert_time
+                g_last_p = self.last_global_alert_anchor  # 대표 기준 가격(예: BTC 가격)
+
+                g_cooldown_ok = (g_last_t is None) or ((now - g_last_t) >= timedelta(minutes=COOLDOWN_MIN))
+
+                g_bypass_ok = False
+                if not g_cooldown_ok and g_last_p:
+                    extra_move_global = ((price - g_last_p) / g_last_p) * 100.0
+                    if abs(extra_move_global) >= COOLDOWN_BYPASS_PCT:
+                        g_bypass_ok = True
+
+                if not (g_cooldown_ok or g_bypass_ok):
+                    continue
+
+                
+                
+                
+                
+                
                 if cooldown_ok or bypass_ok:
                     extra_news = self._collect_news()
                     llm_comment = self._maybe_llm(sym, price, pct15, pct60, pct10)
                     alert_msg = self._format_alert(sym, price, pct15, pct60, pct10, reason, extra_news, llm_comment)
+
                     self.tg.send(alert_msg)
+
+                    # (기존) 심볼별 마지막 알림 기록
                     self.last_alert_time[sym] = now
                     self.last_alert_price[sym] = price
+
+                    # ✅ (추가) 서비스 전체 마지막 알림 기록 (우루루 방지)
+                    self.last_global_alert_time = now
+                    self.last_global_alert_anchor = price
+
 
             print(f"\r👀 Moneybag 감시 중... ({self._now().strftime('%H:%M:%S')})", end="", flush=True)
             time.sleep(POLL_INTERVAL_SEC)
