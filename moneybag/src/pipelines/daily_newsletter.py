@@ -168,10 +168,13 @@ class DailyNewsletter:
         sentiment_display = self.get_market_sentiment_display()
 
         is_emergency, change_rate = self.emergency_check()
-        headline_instruction = "가장 중요한 이슈를 하나 골라 자극적인 제목을 뽑아라."
+        # 기본 상황
+        headline_context = "특별한 급등락 없음. 전반적인 시장 분위기와 핵심 이슈를 반영할 것."
+        
         if is_emergency:
             type_str = "폭등" if change_rate > 0 else "폭락"
-            headline_instruction = f"⚠️ [긴급] BTC {change_rate}% {type_str}! 원인과 대응책을 제목으로 뽑아라."
+            # 긴급 상황 팩트 전달
+            headline_context = f"🚨 [긴급 상황] BTC {change_rate}% {type_str} 발생. 투자자들의 이목을 끌 자극적인 멘트 필요."
 
         # 2. [NEW] 전략 시뮬레이션 및 봇 선정 (BotTraderSelector에게 위임)
         # (1) 모든 창의적 전략 생성
@@ -209,6 +212,10 @@ class DailyNewsletter:
         - **전술 판단:** {regime_comment}
         - **메인 전략:** "{best_strat_name}" (이 전략을 중심으로 브리핑해라)
         
+        [🎯 헤드라인 작성 미션]  <-- ★ 여기를 추가!
+        - 현재 상황: {headline_context}
+        - 지시: 위 상황을 바탕으로 클릭을 유도하는 가장 자극적이고 매력적인 한 줄 제목을 창작해라. (명령어 자체를 출력하지 말고, 창작된 제목만 출력할 것)
+        
         [🔥🔥 절대 준수 사항]
         1. **뉴스 포맷:** `### 1. [제목]` -> `> 🔍 **팩트:**` -> `> 👁️ **헌터의 뷰:**` 형식을 목숨 걸고 지켜라.
         2. **독백 필수:** 대시보드 아래 독백 란을 비우지 마라.
@@ -233,7 +240,7 @@ class DailyNewsletter:
         3. **전략 설명:** - 1위 전략인 **[{best_strat_name}]**이 왜 지금 시장에 통하는지 논리적으로 설득해라.
 
         [출력 양식]
-        (맨 윗줄 제목: # 🐋 [헤드라인] {headline_instruction} ...)
+        # 🐋 [헤드라인] (여기에 위 미션에 따라 창작한 제목을 출력) <-- ★ 여기를 수정!
 
         날짜: {today_date} | 시간: {mode.upper()} | 사령관: {commander_name}
 
