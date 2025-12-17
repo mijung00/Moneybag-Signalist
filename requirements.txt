@@ -1,29 +1,36 @@
-﻿# --- 웹 서버 & 기본 ---
-Flask==3.1.2
-boto3==1.36.0
-botocore==1.36.0
-pymysql==1.1.2
-python-dotenv==1.2.1
-requests==2.32.5
-gunicorn==23.0.0
+# [Core Data & Utils]
+pandas>=2.0.0
+numpy
+python-dotenv
+requests
+pytz
+tzdata>=2024.1
+lxml
+schedule
+boto3>=1.28.0
 
-# --- 데이터 & 크롤링 ---
-pandas==2.2.3
-numpy==2.2.0
-beautifulsoup4==4.12.3
-lxml==5.3.0
-selenium==4.27.0
-webdriver-manager==4.0.2
+# [Finance & Crypto]
+yfinance>=0.2.40
+ccxt>=4.0.0
 
-# --- 투자 & 크립토 ---
-ccxt==4.4.45
-yfinance==0.2.50
+# [AI & LLM]
+openai>=1.0.0
 
-# --- AI & 알림 ---
-openai==1.57.0
-sendgrid==6.11.0
-schedule==1.2.2
+# [Media Generation]
+markdown
+Pillow>=10.2.0
+gTTS
+edge-tts
+imageio-ffmpeg
 
-# --- 기타 유틸 ---
-pytz==2024.2
-setuptools==75.6.0
+# [Messaging & Alerts]
+sendgrid
+python-telegram-bot
+
+# [Web Server]
+Flask
+
+# [Database]
+pymysql
+cryptography
+
