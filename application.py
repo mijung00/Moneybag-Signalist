@@ -10,6 +10,7 @@ from flask import Flask, render_template, request, flash, redirect, url_for
 from pathlib import Path
 from datetime import datetime, timedelta
 from botocore.exceptions import ClientError
+from threading import Thread
 
 # ----------------------------------------------------------------
 # [1] 기본 설정 및 경로
@@ -136,6 +137,20 @@ def run_script(folder_name, module_path, args=[]):
         print(f"❌ Exception: {e}")
         return f"EXCEPTION: {str(e)}"
 
+def send_report_email_async(service_name, date_str, recipient_email):
+    """백그라운드에서 리포트 이메일을 발송하는 함수"""
+    with app.app_context():
+        module_name = "iceage.src.pipelines.send_newsletter" if service_name == 'signalist' else "moneybag.src.pipelines.send_email"
+        
+        # 환경변수를 통해 이메일과 날짜 전달
+        env = os.environ.copy()
+        env["NEWSLETTER_AUTO_SEND"] = "0" # 구독자 DB 무시하고 강제 발송
+        env["NEWSLETTER_ENV"] = "dev" # 테스트 모드로 설정하여 TEST_RECIPIENT 사용
+        env["TEST_RECIPIENT"] = recipient_email
+        env["REF_DATE"] = date_str
+        
+        subprocess.run([sys.executable, "-m", module_name, date_str], env=env)
+
 # ================================================================
 # 🌐 [PART A] 태스크 러너 라우트 (AWS/Cron 호출용)
 # ================================================================
@@ -209,6 +224,15 @@ def index():
             flash("일시적인 오류가 발생했습니다.", "error")
         return redirect(url_for('index'))
 
+    # [추가] 아카이브 잠금 해제 요청 시 (최신 리포트 발송)
+    if request.method == 'POST' and request.form.get('action') == 'unlock':
+        email = request.form.get('email')
+        service_name = request.form.get('service_name')
+        date_str = request.form.get('date_str')
+        Thread(target=send_report_email_async, args=(service_name, date_str, email)).start()
+        flash(f"{email}으로 최신 리포트를 발송했습니다. 🚀", "success")
+        return redirect(url_for('archive_view', service_name=service_name, date_str=date_str))
+
     return render_template('index.html')
 
 @application.route('/archive/<service_name>')
@@ -224,12 +248,19 @@ def archive_view(service_name, date_str):
     except ValueError:
         return redirect(url_for('archive_latest', service_name=service_name))
 
-    today = datetime.now()
-    today_str = today.strftime("%Y-%m-%d")
+    # [수정] "가장 최신 리포트 1개"를 잠그는 로직
+    # S3에서 해당 서비스의 가장 최신 파일 날짜를 가져옴
+    latest_report_date_str = None
+    if s3_manager:
+        prefix = "iceage/out/" if service_name == 'signalist' else "moneybag/data/out/"
+        latest_file = s3_manager.get_latest_file_in_prefix(prefix)
+        if latest_file:
+            match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+            if match: latest_report_date_str = match.group(1)
     
     prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
-    is_locked = target_date.strftime('%Y-%m-%d') >= today.strftime('%Y-%m-%d')
+    is_locked = (latest_report_date_str is not None) and (date_str >= latest_report_date_str)
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
 
     content_html = None
@@ -271,7 +302,7 @@ def archive_view(service_name, date_str):
         prev_date=prev_date,
         next_date=next_date,
         is_locked=is_locked,
-        today_str=today_str 
+        today_str=datetime.now().strftime("%Y-%m-%d")
     )
 
 @application.route('/health')

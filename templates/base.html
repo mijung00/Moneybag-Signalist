@@ -31,22 +31,24 @@
                 <span class="text-xl font-black tracking-tight text-gray-900" style="font-family: 'Pretendard', sans-serif;">FINCORE</span>
             </a>
 
-            <nav class="flex items-center space-x-1">
-                <a href="/archive/signalist" class="text-sm font-semibold px-4 py-2 rounded-full transition-colors {% if 'signalist' in request.path %}bg-gray-100 text-black{% else %}text-gray-500 hover:text-black{% endif %}">
-                   The Signalist
-                </a>
-                <a href="/archive/moneybag" class="text-sm font-semibold px-4 py-2 rounded-full transition-colors {% if 'moneybag' in request.path or 'whalehunter' in request.path %}bg-gray-100 text-black{% else %}text-gray-500 hover:text-black{% endif %}">
-                   The Whale Hunter
-                </a>
-            </nav>
+            <!-- [수정] 네비게이션을 헤더 밖으로 빼고, 공간을 채우기 위한 빈 div 추가 -->
+            <div class="flex-1"></div>
 
-            <div class="shrink-0 w-[80px] text-right">
+            <div class="shrink-0 text-right">
                 <a href="/#subscribe" class="inline-block bg-black text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-gray-800 transition">
                     구독하기
                 </a>
             </div>
         </div>
     </header>
+
+    <!-- [추가] 헤더 아래에 새로운 서브 네비게이션 메뉴 -->
+    <nav class="w-full bg-white border-b border-gray-200 py-3">
+        <div class="max-w-3xl mx-auto flex justify-center items-center space-x-2 px-4">
+            <a href="/archive/signalist" class="px-4 py-2 rounded-full text-sm font-semibold transition-colors {% if 'signalist' in request.path %}bg-gray-900 text-white shadow-sm{% else %}text-gray-500 hover:bg-gray-100 hover:text-gray-900{% endif %}">The Signalist</a>
+            <a href="/archive/moneybag" class="px-4 py-2 rounded-full text-sm font-semibold transition-colors {% if 'moneybag' in request.path or 'whalehunter' in request.path %}bg-gray-900 text-white shadow-sm{% else %}text-gray-500 hover:bg-gray-100 hover:text-gray-900{% endif %}">The Whale Hunter</a>
+        </div>
+    </nav>
 
     <main class="flex-grow w-full max-w-3xl mx-auto px-4 py-8">
         {% block content %}{% endblock %}
