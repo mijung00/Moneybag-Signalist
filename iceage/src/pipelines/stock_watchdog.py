@@ -113,6 +113,68 @@ except Exception as e:
     print(f"⚠️ [LLM Import] {e}", flush=True)
     _chat = None
 
+# ---------------------------------------------------------------------
+# ✅ 한국투자증권(KIS) API 클라이언트 (토큰 자동 갱신 포함)
+# ---------------------------------------------------------------------
+class KisClient:
+    def __init__(self):
+        self.app_key = os.getenv("KIS_APP_KEY")
+        self.app_secret = os.getenv("KIS_APP_SECRET")
+        self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
+        self.token = None
+        self.token_expired = None
+
+    def _get_access_token(self):
+        # 토큰이 있고 만료되지 않았으면 재사용 (여유 1분)
+        if self.token and self.token_expired and datetime.now(TZ) < self.token_expired:
+            return self.token
+
+        url = f"{self.base_url}/oauth2/tokenP"
+        headers = {"content-type": "application/json"}
+        body = {
+            "grant_type": "client_credentials",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret
+        }
+        try:
+            res = requests.post(url, json=body, timeout=10)
+            res.raise_for_status()
+            data = res.json()
+            self.token = data["access_token"]
+            # 만료 시간 설정 (기본 24시간이지만 안전하게 계산)
+            expires_in = int(data.get("expires_in", 86400))
+            self.token_expired = datetime.now(TZ) + timedelta(seconds=expires_in - 60)
+            print(f"🔑 [KIS] Access Token 발급 완료 (만료: {self.token_expired})", flush=True)
+            return self.token
+        except Exception as e:
+            print(f"❌ [KIS] 토큰 발급 실패: {e}", flush=True)
+            return None
+
+    def get_price(self, market_code: str) -> Optional[float]:
+        """업종(지수) 현재가 조회 (코스피: 0001, 코스닥: 1001)"""
+        token = self._get_access_token()
+        if not token: return None
+
+        url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
+        headers = {
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
+            "tr_id": "FHKUP03500100",  # 업종 현재가 TR ID
+            "custtype": "P"
+        }
+        params = {"fid_cond_mrkt_div_code": "U", "fid_input_iscd": market_code}
+        
+        try:
+            res = requests.get(url, headers=headers, params=params, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                if data['rt_cd'] == '0':
+                    return float(data['output']['bstp_nmix_prpr'])
+        except Exception:
+            pass
+        return None
 
 
 def _extract_secret_value(raw: str, env_key: str) -> str:
@@ -175,6 +237,9 @@ class SignalistWatchdog:
         chat_id = _extract_secret_value(chat_raw, "TELEGRAM_CHAT_ID_SIGNALIST")
         self.tg = TelegramClient(token=token, chat_id=chat_id)
 
+        # KIS 클라이언트 초기화 (키가 없으면 None)
+        self.kis = KisClient() if os.getenv("KIS_APP_KEY") else None
+
         self.hist = {t: deque(maxlen=1200) for t in TICKERS}
         self.baseline = {}      # ticker -> (date, price)
         self.sent_levels = {}   # ticker -> (date, set[(sign, level)])
@@ -194,6 +259,31 @@ class SignalistWatchdog:
         return datetime.now(TZ)
 
     def _get_price(self, ticker: str) -> Optional[float]:
+        # 1. 한국투자증권 API (가장 우선)
+        if self.kis:
+            kis_code = None
+            if ticker == "^KS11": kis_code = "0001"  # 코스피
+            elif ticker == "^KQ11": kis_code = "1001" # 코스닥
+            
+            if kis_code:
+                p = self.kis.get_price(kis_code)
+                if p is not None: return p
+
+        # 2. 네이버 금융 (백업 1)
+        naver_symbol = None
+        if ticker == "^KS11": naver_symbol = "KOSPI"
+        elif ticker == "^KQ11": naver_symbol = "KOSDAQ"
+        
+        if naver_symbol:
+            try:
+                url = f"https://m.stock.naver.com/api/index/{naver_symbol}/basic"
+                r = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+                if r.status_code == 200:
+                    return float(r.json()['closePrice'].replace(',', ''))
+            except Exception:
+                pass
+
+        # 3. yfinance (백업 2)
         try:
             # fast_info is faster but can be stale
             return float(yf.Ticker(ticker).fast_info["last_price"])
