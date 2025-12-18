@@ -7,7 +7,6 @@ import sys
 import datetime as dt
 import math
 from pathlib import Path
-import pandas as pd
 from sendgrid import SendGridAPIClient
 # 👇 [수정] Personalization 모듈 추가
 from sendgrid.helpers.mail import Mail, To, Personalization
@@ -21,7 +20,6 @@ ICEAGE_DIR = Path(__file__).resolve().parents[2]
 REPO_DIR = ICEAGE_DIR.parent
 OUT_DIR = ICEAGE_DIR / "out"
 OUT_SOCIAL_DIR = OUT_DIR / "social"
-SUBSCRIBERS_FILE = REPO_DIR / os.getenv("SIGNALIST_SUBSCRIBERS_FILE", "subscribers_signalist.csv")
 
 def _get_newsletter_env_suffix() -> str:
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
@@ -46,21 +44,28 @@ def load_sns_report_txt(ref_date: str) -> str:
 
 def get_subscribers(env: str, test_recipient: str, is_auto_send: bool) -> list[str]:
     if not is_auto_send or env == 'dev':
-        return [test_recipient]
-    
-    if SUBSCRIBERS_FILE.exists():
-        try:
-            df = pd.read_csv(SUBSCRIBERS_FILE, encoding='utf-8')
-            if 'subscribed' in df.columns and 'email' in df.columns:
-                subscribers = df[df['subscribed'] == True]['email'].tolist()
-                subscribers = [e.strip() for e in subscribers if "@" in e and "." in e]
-                return subscribers
-            else:
-                return [os.getenv("ADMIN_EMAIL")]
-        except Exception:
-            return [os.getenv("ADMIN_EMAIL")]
-    else:
-        return [os.getenv("ADMIN_EMAIL")]
+        print(f"⚠️ [Mode: {env}] 테스트 수신자에게만 발송합니다.")
+        return [test_recipient] if test_recipient else []
+
+    # DB에서 실제 구독자 조회
+    try:
+        import pymysql
+        conn = pymysql.connect(
+            host=os.getenv("DB_HOST"), port=int(os.getenv("DB_PORT", 3306)),
+            user=os.getenv("DB_USER"), password=os.getenv("DB_PASSWORD"),
+            db=os.getenv("DB_NAME"), charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            # 시그널리스트 구독자(is_signalist=1)만 조회
+            cursor.execute("SELECT email FROM subscribers WHERE is_signalist=1 AND is_active=1")
+            result = cursor.fetchall()
+            emails = [row['email'] for row in result]
+            print(f"✅ [DB Load] 시그널리스트 구독자 {len(emails)}명 조회 성공")
+            return emails
+    except Exception as e:
+        print(f"⚠️ [DB Error] 구독자 조회 실패: {e}")
+        return [os.getenv("ADMIN_EMAIL")] if os.getenv("ADMIN_EMAIL") else []
 
 def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str, from_email: str) -> bool:
     """
