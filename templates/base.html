@@ -19,6 +19,39 @@
             color: #111;
         }
 
+        /* [추가] 플래시 메시지 팝업 스타일 */
+        .flash-popup-container {
+            position: fixed;
+            top: 80px; /* 헤더 높이(64px) + 여백 */
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            width: 90%;
+            max-width: 500px;
+        }
+        .flash-popup {
+            padding: 12px 24px;
+            border-radius: 9999px;
+            font-size: 14px;
+            font-weight: 600;
+            color: white;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            opacity: 0;
+            transform: translateY(-20px);
+            animation: fadeInDown 0.5s 0.1s forwards; /* 0.1초 딜레이 후 시작 */
+        }
+        .flash-popup.success { background-color: #2563eb; } /* 파란색 */
+        .flash-popup.info { background-color: #4f46e5; } /* 남색 */
+        .flash-popup.error { background-color: #dc2626; } /* 빨간색 */
+
+        @keyframes fadeInDown {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
     </style>
 </head>
 <body class="flex flex-col min-h-screen">
@@ -42,6 +75,20 @@
         </div>
     </header>
 
+    <!-- [추가] 플래시 메시지 팝업 렌더링 위치 -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-popup-container" id="flash-container">
+                {% for category, message in messages %}
+                    <div class="flash-popup {{ category }}">
+                        <i class="fa-solid {% if category == 'success' %}fa-check-circle{% elif category == 'info' %}fa-paper-plane{% else %}fa-circle-exclamation{% endif %} mr-2"></i>
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
     <!-- [추가] 헤더 아래에 새로운 서브 네비게이션 메뉴 -->
     <nav class="w-full bg-white border-b border-gray-200 py-3">
         <div class="max-w-3xl mx-auto flex justify-center items-center space-x-2 px-4">
@@ -59,6 +106,20 @@
             <p class="text-[10px] text-gray-400">&copy; 2025 Fincore. All rights reserved.</p>
         </div>
     </footer>
+
+    <!-- [추가] 플래시 메시지 자동 숨김 스크립트 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const flashContainer = document.getElementById('flash-container');
+            if (flashContainer) {
+                setTimeout(() => {
+                    flashContainer.style.transition = 'opacity 0.5s ease-out';
+                    flashContainer.style.opacity = '0';
+                    setTimeout(() => flashContainer.remove(), 500);
+                }, 4000); // 4초 후에 사라짐
+            }
+        });
+    </script>
 
 </body>
 </html>

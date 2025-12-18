@@ -282,7 +282,7 @@ def get_latest_report_date(service_name: str) -> str | None:
                 if "Contents" in page:
                     for obj in page["Contents"]:
                         if re.search(r'(\d{4}-\d{2}-\d{2})', obj["Key"]):
-                            all_files.append(obj["Key"])
+                            all_files.append(obj["Key"].split("/")[-1]) # 파일명만 추출
             if all_files:
                 latest_file = sorted(all_files)[-1]
                 match = re.search(r'(\d{4}-\d{2}-\d{2})', latest_file)
@@ -315,6 +315,7 @@ def archive_view(service_name, date_str):
     
     prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    # [수정] 최신 리포트 날짜와 같거나 더 미래의 날짜(아직 안 온 날짜 포함)는 모두 잠금
     is_locked = (latest_report_date_str is not None) and (date_str >= latest_report_date_str)
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
 
