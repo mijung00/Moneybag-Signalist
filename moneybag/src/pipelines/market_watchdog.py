@@ -23,7 +23,8 @@ SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
 POLL_INTERVAL_SEC = 10
 
 # “의미 있는 움직임” 기준 (15분 / 60분)
-TH_15M_PCT = 1.5     # 예: 0.8% 이상이면 알림 고려
+# TODO: 테스트 후 원래 값(1.5)으로 복원 필요
+TH_15M_PCT = 0.01     # 예: 0.8% 이상이면 알림 고려
 TH_60M_PCT = 3.0     # 예: 2.5% 이상이면 알림 고려
 
 # 10분 급가속(추세 가속) 기준
@@ -39,7 +40,7 @@ COOLDOWN_BYPASS_PCT = 2.0
 # 하루에 2~3번 “생존신호” 브리핑(죽었는지 확인용) - KST 기준
 BRIEF_TIMES = ["09:00", "15:00", "21:00"]
 BRIEF_USE_LLM = False
-BRIEF_ON_START = True
+BRIEF_ON_START = False
 # ---------------------------------------------------------------------
 
 
@@ -63,17 +64,6 @@ try:
     load_dotenv()
 except Exception:
     pass
-
-try:
-    from moneybag.src.collectors.crypto_news_rss import CryptoNewsRSS
-except Exception:
-    CryptoNewsRSS = None
-
-try:
-    from moneybag.src.llm.openai_driver import _chat
-except Exception:
-    _chat = None
-
 
 def _extract_secret_value(raw: str, env_key: str) -> str:
     if not raw:
@@ -104,6 +94,19 @@ def _normalize_env_json(key: str) -> None:
     if val and val != raw:
         os.environ[key] = val
 
+# ✅ 중요: LLM 드라이버(_chat) import 전에 API 키를 정규화해야 함
+_normalize_env_json("OPENAI_API_KEY")
+
+try:
+    from moneybag.src.collectors.crypto_news_rss import CryptoNewsRSS
+except Exception:
+    CryptoNewsRSS = None
+
+try:
+    from moneybag.src.llm.openai_driver import _chat
+except Exception:
+    _chat = None
+
 
 
 @dataclass
@@ -132,7 +135,6 @@ class MarketWatchdog:
         token = _extract_secret_value(tok_raw, "TELEGRAM_BOT_TOKEN_MONEYBAG")
         chat_id = _extract_secret_value(chat_raw, "TELEGRAM_CHAT_ID_MONEYBAG")
         self.tg = TelegramClient(token=token, chat_id=chat_id)
-        _normalize_env_json("OPENAI_API_KEY")
 
 
         self.news = CryptoNewsRSS() if CryptoNewsRSS else None
@@ -219,7 +221,6 @@ class MarketWatchdog:
         return "\n".join(lines)
 
     def _maybe_llm(self, symbol: str, price: float, pct15: Optional[float], pct60: Optional[float], pct10: Optional[float]) -> str:
-        _normalize_env_json("OPENAI_API_KEY")
         if not _chat:
             return ""
         try:
@@ -227,8 +228,9 @@ class MarketWatchdog:
             user = f"심볼={symbol}, 가격={price}, 10m={pct10}, 15m={pct15}, 60m={pct60}. 지금 상황을 3~5줄로 설명해줘."
             return _chat(system, user) or ""
         except Exception as e:
+            err_msg = f"❌ [AI 에러] : {e}"
             print(f"⚠️ [LLM] 실패: {e}", flush=True)
-            return ""
+            return err_msg
 
     def _collect_news(self) -> str:
         if not self.news:

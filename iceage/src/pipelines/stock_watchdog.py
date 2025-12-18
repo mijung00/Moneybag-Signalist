@@ -4,6 +4,7 @@ import sys
 import time
 import json
 import signal
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import deque
@@ -195,14 +196,15 @@ class SignalistWatchdog:
     def _get_price(self, ticker: str) -> Optional[float]:
         try:
             return float(yf.Ticker(ticker).fast_info["last_price"])
-        except Exception:
+        except Exception as e:
+            logging.warning(f"⚠️ [Price] {ticker} fast_info 조회 실패, yf.download로 재시도: {e}")
             try:
                 data = yf.download(ticker, period="1d", interval="1m", progress=False)
                 if data is None or data.empty:
                     return None
                 return float(data["Close"].iloc[-1])
-            except Exception as e:
-                print(f"⚠️ [Price] {ticker} 조회 실패: {e}", flush=True)
+            except Exception as e_inner:
+                logging.error(f"⚠️ [Price] {ticker} yf.download 조회 실패: {e_inner}")
                 return None
 
     def _pct_over_minutes(self, ticker: str, minutes: int) -> Optional[float]:

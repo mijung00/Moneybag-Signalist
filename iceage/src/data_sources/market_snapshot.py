@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import logging
+import time
 from datetime import date, timedelta
 from typing import Dict, Tuple, Optional
 
+import requests
 import yfinance as yf
 
 # 야후 티커 매핑
@@ -38,9 +41,36 @@ def _fetch_one(ticker: str, ref: date) -> Optional[Tuple[float, float]]:
     """
     ref 기준(보통 전 영업일)의 종가와 전일 대비 %를 반환.
     ref에 데이터가 없으면 최대 10일 전까지 거슬러 올라가서 최근 값을 사용.
+    네트워크 등 일시적 오류에 대비해 3회 재시도 로직 추가.
     """
-    df = yf.Ticker(ticker).history(period="1mo", auto_adjust=False)
-    if df.empty:
+    session = requests.Session()
+    session.headers[
+        "User-Agent"
+    ] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+
+    df = None
+    for attempt in range(3):
+        try:
+            df = yf.Ticker(ticker, session=session).history(
+                period="1mo", auto_adjust=False
+            )
+            if not df.empty:
+                break  # 성공 시 루프 탈출
+        except Exception as e:
+            logging.error(
+                f"YFINANCE_EXCEPTION for ticker {ticker} (attempt {attempt + 1}/3): {e}"
+            )
+
+        if df is None or df.empty:
+            logging.warning(
+                f"YFINANCE_EMPTY for ticker {ticker} (attempt {attempt + 1}/3). Retrying in 2s..."
+            )
+            time.sleep(2)
+        else:  # df가 비어있지 않으면 break
+            break
+
+    if df is None or df.empty:
+        logging.error(f"YFINANCE_FAILED for ticker {ticker} after 3 attempts.")
         return None
 
     df = df.tz_localize(None)

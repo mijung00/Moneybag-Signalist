@@ -6,6 +6,8 @@ import os
 import json
 import sys
 import re  # [필수] 정규식 모듈 유지
+import logging
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 import pandas as pd
 from pathlib import Path
 import csv
@@ -172,8 +174,11 @@ def section_header_intro(ref_date: str) -> str:
     market_summary = bundle.get("market_one_liner") or ""
     
     ref = _date.fromisoformat(ref_date)
-    try: snap = get_market_overview(ref)
-    except: snap = {}
+    try:
+        snap = get_market_overview(ref)
+    except Exception as e:
+        print(f"🚨 [ERROR] get_market_overview failed in section_header_intro: {e}")
+        snap = {}
     
     indices = snap.get("indices", {})
     fx = snap.get("fx", {})
@@ -500,8 +505,11 @@ def section_news_digest(ref_date: str) -> str:
 
 def section_global_minute(ref_date: str) -> str:
     ref = _date.fromisoformat(ref_date)
-    try: snap = get_market_overview(ref)
-    except: snap = {}
+    try:
+        snap = get_market_overview(ref)
+    except Exception as e:
+        print(f"🚨 [ERROR] get_market_overview failed in section_global_minute: {e}")
+        snap = {}
     indices = snap.get("indices", {})
     fx = snap.get("fx", {})
     commodities = snap.get("commodities", {})

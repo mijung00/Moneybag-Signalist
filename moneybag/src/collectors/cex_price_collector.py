@@ -1,6 +1,7 @@
 import ccxt
 import yfinance as yf
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -27,11 +28,11 @@ class CexPriceCollector:
         """
         try:
             # 야후 파이낸스에서 원달러 환율 조회
-            ticker = yf.Ticker("KRW=X")
+            ticker = yf.Ticker("USDKRW=X")
             rate = ticker.history(period="1d")['Close'].iloc[-1]
             return float(rate)
         except Exception as e:
-            print(f"⚠️ 환율 조회 실패 (기본값 1400 사용): {e}")
+            logging.error(f"⚠️ 환율 조회 실패 (기본값 1400 사용): {e}")
             return 1400.0
 
     def fetch_price_data(self, symbol_code: str = "BTC"):
