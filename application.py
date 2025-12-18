@@ -193,12 +193,15 @@ def update_stock_data():
 # ================================================================
 @application.route('/', methods=['GET', 'POST'])
 def index():
-    # 구독 로직 (POST 요청 시)
+    # POST 요청 통합 처리
     if request.method == 'POST':
         email = request.form.get('email')
         name = request.form.get('name')
-        selected_services = request.form.getlist('services') 
         agree_terms = request.form.get('agree_terms')
+        action = request.form.get('action') # 'unlock' 또는 None
+
+        # [수정] 처리 후 돌아갈 페이지 주소 (기본값: 메인)
+        redirect_url = request.referrer or url_for('index')
 
         if not email or not agree_terms:
             flash("이메일 입력 및 약관 동의는 필수입니다.", "error")
@@ -206,21 +209,49 @@ def index():
 
         sub_signalist = 1 if 'signalist' in selected_services else 0
         sub_moneybag = 1 if 'moneybag' in selected_services else 0 
+        # 1. 유효성 검사 (공통)
+        if not email or not agree_terms:
+            flash("이메일 입력 및 약관 동의는 필수입니다.", "error")
+            if action == 'unlock':
+                # 원래 있던 아카이브 페이지로 돌려보냄
+                return redirect(url_for('archive_view', service_name=request.form.get('service_name'), date_str=request.form.get('date_str')))
+            return redirect(redirect_url)
 
+        # 2. 구독자 DB 처리
         try:
             conn = get_db_connection()
             with conn.cursor() as cursor:
                 # 기존 구독자 체크
-                cursor.execute("SELECT id FROM subscribers WHERE email = %s", (email,))
-                if cursor.fetchone():
-                    sql = "UPDATE subscribers SET is_signalist=%s, is_moneybag=%s, is_active=1 WHERE email=%s"
-                    cursor.execute(sql, (sub_signalist, sub_moneybag, email))
+                cursor.execute("SELECT id, is_signalist, is_moneybag FROM subscribers WHERE email = %s", (email,))
+                existing_user = cursor.fetchone()
+
+                # 구독할 서비스 결정
+                sub_signalist = 0
+                sub_moneybag = 0
+                if action == 'unlock':
+                    service_name = request.form.get('service_name')
+                    if service_name == 'signalist':
+                        sub_signalist = 1
+                    else:
+                        sub_moneybag = 1
+                else: # 메인 폼
+                    selected_services = request.form.getlist('services')
+                    sub_signalist = 1 if 'signalist' in selected_services else 0
+                    sub_moneybag = 1 if 'moneybag' in selected_services else 0
+
+                if existing_user:
+                    # 기존 유저: 구독 정보 업데이트 (기존 구독 유지하며 추가)
+                    new_signalist = max(existing_user['is_signalist'], sub_signalist)
+                    new_moneybag = max(existing_user['is_moneybag'], sub_moneybag)
+                    sql = "UPDATE subscribers SET is_signalist=%s, is_moneybag=%s, is_active=1 WHERE id=%s"
+                    cursor.execute(sql, (new_signalist, new_moneybag, existing_user['id']))
                     flash("구독 정보가 업데이트되었습니다. ✅", "success")
                 else:
+                    # 신규 유저: 새로 추가
                     token = secrets.token_urlsafe(16)
                     sql = "INSERT INTO subscribers (email, name, unsubscribe_token, is_signalist, is_moneybag) VALUES (%s, %s, %s, %s, %s)"
                     cursor.execute(sql, (email, name, token, sub_signalist, sub_moneybag))
-                    flash(f"{name}님, 구독해주셔서 감사합니다! 🎉", "success")
+                    flash(f"{name or '독자'}님, 구독해주셔서 감사합니다! 🎉", "success")
                 
                 # [중요] 이메일 발송 전에 먼저 커밋해서 구독 정보 저장 확실히 하기
                 conn.commit()
@@ -237,22 +268,35 @@ def index():
                         Thread(target=send_report_email_async, args=('moneybag', latest_moneybag_date, email)).start()
                         flash("웨일헌터 최신 리포트를 메일로 보내드렸습니다.", "info")
 
-            conn.close()
         except Exception as e:
             print(f"[DB Error] {e}")
             flash("일시적인 오류가 발생했습니다.", "error")
-        return redirect(url_for('index'))
+        finally:
+            if conn: conn.close()
 
-    # [추가] 아카이브 잠금 해제 요청 시 (최신 리포트 발송)
-    if request.method == 'POST' and request.form.get('action') == 'unlock':
-        email = request.form.get('email')
-        name = request.form.get('name') # 닉네임도 받아서 구독자 DB에 저장
-        service_name = request.form.get('service_name')
-        date_str = request.form.get('date_str')
-        Thread(target=send_report_email_async, args=(service_name, date_str, email)).start()
-        flash(f"{email}으로 최신 리포트를 발송했습니다. 🚀", "success")
-        return redirect(url_for('archive_view', service_name=service_name, date_str=date_str))
+        # 3. 이메일 발송 처리 및 리다이렉트
+        if action == 'unlock':
+            # 잠금 해제 요청: 현재 보고 있는 리포트 발송
+            service_name = request.form.get('service_name')
+            date_str = request.form.get('date_str')
+            Thread(target=send_report_email_async, args=(service_name, date_str, email)).start()
+            flash(f"{email}으로 해당 리포트를 발송했습니다. 🚀", "info")
+            return redirect(redirect_url)
+        else:
+            # 메인 폼 구독: 최신 리포트 발송
+            if sub_signalist:
+                latest_date = get_latest_report_date('signalist')
+                if latest_date:
+                    Thread(target=send_report_email_async, args=('signalist', latest_date, email)).start()
+                    flash("시그널리스트 최신 리포트를 메일로 보내드렸습니다.", "info")
+            if sub_moneybag:
+                latest_date = get_latest_report_date('moneybag')
+                if latest_date:
+                    Thread(target=send_report_email_async, args=('moneybag', latest_date, email)).start()
+                    flash("웨일헌터 최신 리포트를 메일로 보내드렸습니다.", "info")
+            return redirect(redirect_url)
 
+    # GET 요청
     return render_template('index.html')
 
 def get_latest_report_date(service_name: str) -> str | None:
