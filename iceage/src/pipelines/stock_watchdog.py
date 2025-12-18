@@ -182,7 +182,6 @@ class SignalistWatchdog:
 
         self._open_brief_date = None
         self._close_brief_date = None
-        self._test_attempts = 0  # ✅ 테스트 시도 횟수 카운터
 
         self._stop = False
         signal.signal(signal.SIGTERM, self._on_stop)
@@ -195,26 +194,17 @@ class SignalistWatchdog:
         return datetime.now(TZ)
 
     def _get_price(self, ticker: str) -> Optional[float]:
-        """
-        yfinance를 통해 현재가를 조회. 각 단계별로 상세한 로그를 남김.
-        """
         try:
-            price = float(yf.Ticker(ticker).fast_info["last_price"])
-            logging.info(f"💡 [Price] {ticker} fast_info 조회 성공: {price}")
-            return price
-        except Exception as e1:
-            logging.warning(f"⚠️ [Price] {ticker} fast_info 조회 실패 ({type(e1).__name__}), history()로 재시도")
+            # fast_info is faster but can be stale
+            return float(yf.Ticker(ticker).fast_info["last_price"])
+        except Exception:
             try:
+                # history is slower but more reliable
                 data = yf.Ticker(ticker).history(period="1d")
                 if data is not None and not data.empty:
-                    price = float(data["Close"].iloc[-1])
-                    logging.info(f"💡 [Price] {ticker} history() 조회 성공: {price}")
-                    return price
-                else:
-                    logging.warning(f"⚠️ [Price] {ticker} history()가 비어있는 데이터를 반환함.")
-                    return None
-            except Exception as e2:
-                logging.error(f"❌ [Price] {ticker} history() 조회도 실패: {e2}")
+                    return float(data["Close"].iloc[-1])
+                return None
+            except Exception:
                 return None
 
     def _pct_over_minutes(self, ticker: str, minutes: int) -> Optional[float]:
@@ -359,29 +349,24 @@ class SignalistWatchdog:
     def run_forever(self):
         print("🦅 [System] Signalist Watchdog 시작", flush=True)
         print("🦅 [System] 주식 감시 루프 진입...", flush=True)
+        
+        # Heartbeat 파일 경로 (watchdogs.py 매니저가 감시함)
+        hb_path = os.getenv("ICEAGE_HEARTBEAT_PATH")
 
         while not self._stop:
+            # ✅ Heartbeat 갱신 (나 살아있음)
+            if hb_path:
+                try:
+                    with open(hb_path, 'a'):
+                        os.utime(hb_path, None)
+                except Exception:
+                    pass
+
             self._send_brief_if_due()
 
             now = self._now()
             for ticker, name in TICKERS.items():
                 price = self._get_price(ticker)
-
-                # --- 테스트 로직: 시작 후 몇 번의 시도 후 성공/실패 여부 알림 ---
-                # TODO: 테스트 완료 후 이 블록을 삭제하세요.
-                if self._test_attempts < 5:
-                    if price is not None:
-                        # On first success, send message and stop testing
-                        if self._test_attempts >= 0:
-                            self.tg.send(f"✅ [Signalist Test] '{name}' 가격 조회 성공. 현재 지수: {price:,.2f}")
-                            self._test_attempts = 999 # 성공했으므로 테스트 중단
-                    else:
-                        # If price is None, increment counter and maybe report failure
-                        self._test_attempts += 1
-                        if self._test_attempts >= 5:
-                            # After 5 failures, send a failure message
-                            self.tg.send(f"❌ [Signalist Test] 5회 시도 후에도 '{name}' 가격 조회 실패. yfinance 라이브러리 또는 네트워크 문제를 확인하세요.")
-                # --- 테스트 로직 끝 ---
 
                 if price is None:
                     continue
