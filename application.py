@@ -266,7 +266,7 @@ def get_latest_report_date(service_name: str) -> str | None:
         if hasattr(s3_manager, 'get_latest_file_in_prefix'):
             latest_file = s3_manager.get_latest_file_in_prefix(prefix)
             if latest_file:
-                match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+                match = re.search(r'(\d{4}-\d{2}-\d{2})', latest_file)
                 if match: latest_report_date_str = match.group(1)
         else:
             raise AttributeError("Method missing")
@@ -281,11 +281,11 @@ def get_latest_report_date(service_name: str) -> str | None:
             for page in page_iterator:
                 if "Contents" in page:
                     for obj in page["Contents"]:
-                        if re.search(r'(\d{4}-\d{2}-\d{2})\.html', obj["Key"]):
+                        if re.search(r'(\d{4}-\d{2}-\d{2})', obj["Key"]):
                             all_files.append(obj["Key"])
             if all_files:
                 latest_file = sorted(all_files)[-1]
-                match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+                match = re.search(r'(\d{4}-\d{2}-\d{2})', latest_file)
                 if match: latest_report_date_str = match.group(1)
         except Exception as e:
             print(f"⚠️ [S3 Error] 최신 파일 조회 실패: {e}")
@@ -293,9 +293,14 @@ def get_latest_report_date(service_name: str) -> str | None:
 
 @application.route('/archive/<service_name>')
 def archive_latest(service_name):
-    # 최신(어제) 날짜로 리다이렉트
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    return redirect(url_for('archive_view', service_name=service_name, date_str=yesterday))
+    # [수정] 무조건 어제가 아니라, 실제 S3에 있는 '가장 최신 날짜'로 이동
+    latest_date = get_latest_report_date(service_name)
+    if latest_date:
+        return redirect(url_for('archive_view', service_name=service_name, date_str=latest_date))
+    
+    # 파일이 하나도 없으면 오늘 날짜로 이동 (가서 '없음' 메시지 띄움)
+    today = datetime.now().strftime("%Y-%m-%d")
+    return redirect(url_for('archive_view', service_name=service_name, date_str=today))
 
 @application.route('/archive/<service_name>/<date_str>')
 def archive_view(service_name, date_str):
