@@ -203,12 +203,6 @@ def index():
         # [수정] 처리 후 돌아갈 페이지 주소 (기본값: 메인)
         redirect_url = request.referrer or url_for('index')
 
-        if not email or not agree_terms:
-            flash("이메일 입력 및 약관 동의는 필수입니다.", "error")
-            return redirect(url_for('index'))
-
-        sub_signalist = 1 if 'signalist' in selected_services else 0
-        sub_moneybag = 1 if 'moneybag' in selected_services else 0 
         # 1. 유효성 검사 (공통)
         if not email or not agree_terms:
             flash("이메일 입력 및 약관 동의는 필수입니다.", "error")
@@ -217,6 +211,7 @@ def index():
                 return redirect(url_for('archive_view', service_name=request.form.get('service_name'), date_str=request.form.get('date_str')))
             return redirect(redirect_url)
 
+        conn = None
         # 2. 구독자 DB 처리
         try:
             conn = get_db_connection()
@@ -271,8 +266,10 @@ def index():
         except Exception as e:
             print(f"[DB Error] {e}")
             flash("일시적인 오류가 발생했습니다.", "error")
+            return redirect(redirect_url)
         finally:
-            if conn: conn.close()
+            if conn: 
+                conn.close()
 
         # 3. 이메일 발송 처리 및 리다이렉트
         if action == 'unlock':
@@ -328,7 +325,13 @@ def get_latest_report_date(service_name: str) -> str | None:
                         if re.search(r'(\d{4}-\d{2}-\d{2})', obj["Key"]):
                             all_files.append(obj["Key"].split("/")[-1]) # 파일명만 추출
             if all_files:
-                latest_file = sorted(all_files)[-1]
+                # [수정] 날짜 우선 정렬
+                def _extract_date(fname):
+                    match = re.search(r'(\d{4}-\d{2}-\d{2})', fname)
+                    return match.group(1) if match else "0000-00-00"
+                
+                sorted_files = sorted(all_files, key=lambda x: (_extract_date(x), x))
+                latest_file = sorted_files[-1]
                 match = re.search(r'(\d{4}-\d{2}-\d{2})', latest_file)
                 if match: latest_report_date_str = match.group(1)
         except Exception as e:
