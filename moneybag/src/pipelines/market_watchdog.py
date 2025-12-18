@@ -23,9 +23,13 @@ SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
 POLL_INTERVAL_SEC = 10
 
 # “의미 있는 움직임” 기준 (15분 / 60분)
-# TODO: 테스트 후 원래 값(1.5)으로 복원 필요
-TH_15M_PCT = 0.01     # 예: 0.8% 이상이면 알림 고려
+TH_15M_PCT = 1.5     # 예: 0.8% 이상이면 알림 고려
 TH_60M_PCT = 3.0     # 예: 2.5% 이상이면 알림 고려
+
+# --- 테스트용 임시 기준 ---
+# 1분간 0.01% 변동 시 알림 (테스트 후 이 두 줄은 삭제하세요)
+TH_1M_PCT_TEST = 0.01
+# --------------------------
 
 # 10분 급가속(추세 가속) 기준
 ACCEL_10M_PCT = 2.0  # 예: 10분에 1.2% 이상이면 “급가속” 알림
@@ -301,12 +305,16 @@ class MarketWatchdog:
 
                 self.price_hist[sym].append((now, price))
 
+                pct1 = self._pct_over_minutes(sym, 1)
                 pct10 = self._pct_over_minutes(sym, 10)
                 pct15 = self._pct_over_minutes(sym, 15)
                 pct60 = self._pct_over_minutes(sym, 60)
 
                 reason = None
-                if pct10 is not None and abs(pct10) >= ACCEL_10M_PCT:
+                # 테스트용 1분 체크를 최우선으로
+                if 'TH_1M_PCT_TEST' in globals() and pct1 is not None and abs(pct1) >= TH_1M_PCT_TEST:
+                    reason = f"1분 테스트(≥{TH_1M_PCT_TEST:.2f}%)"
+                elif pct10 is not None and abs(pct10) >= ACCEL_10M_PCT:
                     reason = f"10분 급가속(≥ {ACCEL_10M_PCT:.2f}%)"
                 elif pct15 is not None and abs(pct15) >= TH_15M_PCT:
                     reason = f"15분 급변(≥ {TH_15M_PCT:.2f}%)"

@@ -34,6 +34,11 @@ SIGNALIST_ALERT_LEVELS = [1, 2, 3, 5]
 # 10분 급가속 기준
 ACCEL_10M_PCT = 1.0
 
+# --- 테스트용 임시 기준 ---
+# 1분간 0.01% 변동 시 알림 (테스트 후 이 두 줄은 삭제하세요)
+TH_1M_PCT_TEST = 0.01
+# --------------------------
+
 # 기본 쿨타임(분) - 단, “새 레벨 돌파”는 쿨타임 무시
 COOLDOWN_MIN = 20
 
@@ -194,18 +199,25 @@ class SignalistWatchdog:
         return datetime.now(TZ)
 
     def _get_price(self, ticker: str) -> Optional[float]:
+        """
+        yfinance를 통해 현재가를 조회. fast_info가 빠르지만 실패하거나 장중 업데이트가 안될 수 있어,
+        실패 시 history()를 fallback으로 사용해 안정성을 높임.
+        """
         try:
-            return float(yf.Ticker(ticker).fast_info["last_price"])
-        except Exception as e:
-            logging.warning(f"⚠️ [Price] {ticker} fast_info 조회 실패, yf.download로 재시도: {e}")
+            # 1. 빠르지만 가끔 실패하거나 오래된 데이터를 주는 fast_info 먼저 시도
+            price = float(yf.Ticker(ticker).fast_info["last_price"])
+            return price
+        except Exception:
+            # 2. fast_info 실패 시, history()로 재시도 (더 안정적)
+            logging.warning(f"⚠️ [Price] {ticker} fast_info 조회 실패, history()로 재시도")
             try:
-                data = yf.download(ticker, period="1d", interval="1m", progress=False)
-                if data is None or data.empty:
-                    return None
-                return float(data["Close"].iloc[-1])
+                data = yf.Ticker(ticker).history(period="1d")
+                if data is not None and not data.empty:
+                    return float(data["Close"].iloc[-1])
             except Exception as e_inner:
-                logging.error(f"⚠️ [Price] {ticker} yf.download 조회 실패: {e_inner}")
+                logging.error(f"⚠️ [Price] {ticker} history() 조회도 실패: {e_inner}")
                 return None
+        return None
 
     def _pct_over_minutes(self, ticker: str, minutes: int) -> Optional[float]:
         h = self.hist[ticker]
@@ -261,13 +273,12 @@ class SignalistWatchdog:
         except Exception:
             return ""
 
-    def _llm_comment(self, text: str) -> str:
+    def _llm_comment(self, user_prompt: str) -> str:
         if not BRIEF_USE_LLM or not _chat:
             return ""
         try:
             system = "너는 'Signalist'의 시장 관측 애널리스트다. 투자 조언 금지. 상황 설명만."
-            user = text + "\n\n3~5줄로 요약해줘."
-            return (_chat(system, user) or "").strip()
+            return (_chat(system, user_prompt) or "").strip()
         except Exception:
             return ""
 
@@ -301,7 +312,14 @@ class SignalistWatchdog:
         if headlines:
             lines += ["", "📰 주요 헤드라인", headlines]
 
-        llm = self._llm_comment("\n".join(lines))
+        # LLM 프롬프트를 상황에 맞게 생성
+        user_prompt = "\n".join(lines)
+        if tag == "장 시작 브리핑":
+            user_prompt += "\n\n위 내용은 장 시작(09:05) 직후의 상황이다. '개장 전'이라는 표현 대신, '개장 초반' 또는 '장 시작 직후'라는 표현을 사용해서 3~5줄로 요약해줘."
+        else:
+            user_prompt += "\n\n3~5줄로 요약해줘."
+
+        llm = self._llm_comment(user_prompt)
         if llm:
             lines += ["", "🤖 AI 요약", llm]
 
@@ -358,8 +376,18 @@ class SignalistWatchdog:
 
                 base = self.baseline[ticker][1]
                 pct_base = ((price - base) / base) * 100.0
-                pct10 = self._pct_over_minutes(ticker, 10)
+                
+                # --- 테스트 로직 ---
+                if 'TH_1M_PCT_TEST' in globals():
+                    pct1 = self._pct_over_minutes(ticker, 1)
+                    if pct1 is not None and abs(pct1) >= TH_1M_PCT_TEST:
+                        test_msg = f"🧪 [Signalist Test] {name} {pct1:+.2f}% (1m)"
+                        self.tg.send(test_msg)
+                        time.sleep(POLL_INTERVAL_SEC) # 연속 전송 방지
+                        continue # 원래 알림 로직은 건너뜀
+                # --- 테스트 로직 끝 ---
 
+                pct10 = self._pct_over_minutes(ticker, 10)
                 crossed = self._level_crossed(base, price)
                 today, sent = self.sent_levels[ticker]
 
