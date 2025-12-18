@@ -148,10 +148,8 @@ def send_report_email_async(service_name, date_str, recipient_email):
         
         # 환경변수를 통해 이메일과 날짜 전달
         env = os.environ.copy()
-        env["NEWSLETTER_AUTO_SEND"] = "0" # 구독자 DB 무시하고 강제 발송
-        env["NEWSLETTER_ENV"] = "dev" # 테스트 모드로 설정하여 TEST_RECIPIENT 사용
+        env["NEWSLETTER_AUTO_SEND"] = "0" # 구독자 DB 무시하고 강제 발송 (단건 발송)
         env["TEST_RECIPIENT"] = recipient_email
-        env["REF_DATE"] = date_str
         
         subprocess.run([sys.executable, "-m", module_name, date_str], env=env)
 

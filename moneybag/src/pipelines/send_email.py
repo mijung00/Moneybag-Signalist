@@ -214,6 +214,7 @@ class EmailSender:
 if __name__ == "__main__":
     # [수정] CLI 실행 시 단건 발송 로직 구현
     import sys
+    from common.s3_manager import S3Manager
     
     # 1. 인자 파싱
     ref_date = None
@@ -231,19 +232,33 @@ if __name__ == "__main__":
         print("❌ 수신자(TEST_RECIPIENT)가 지정되지 않았습니다.")
         sys.exit(0)
 
-    # 3. 해당 날짜의 파일 찾기 (Morning/Night 둘 다 시도)
     sender = EmailSender()
-    # 강제로 수신자 리스트 덮어쓰기 (단건 발송용)
     sender.to_emails = [recipient]
 
-    found = False
-    for mode in ["Morning", "Night"]:
-        filename = f"Moneybag_Letter_{mode}_{ref_date}.html"
-        file_path = OUTPUT_DIR / filename
-        if file_path.exists():
-            print(f"   👉 {mode} 리포트 발송 중...")
-            sender.send(str(file_path), mode=mode.lower())
-            found = True
+    # 3. S3에서 HTML 콘텐츠 가져오기
+    s3 = S3Manager(bucket_name="fincore-output-storage")
     
-    if not found:
-        print(f"⚠️ 해당 날짜({ref_date})의 리포트 파일이 없습니다.")
+    morning_key = f"moneybag/data/out/Moneybag_Letter_Morning_{ref_date}.html"
+    night_key = f"moneybag/data/out/Moneybag_Letter_Night_{ref_date}.html"
+    
+    morning_html_raw = s3.get_text_content(morning_key)
+    night_html_raw = s3.get_text_content(night_key)
+
+    parts = []
+    if morning_html_raw:
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', morning_html_raw, re.DOTALL | re.IGNORECASE)
+        parts.append(body_match.group(1) if body_match else morning_html_raw)
+
+    if night_html_raw:
+        if morning_html_raw:
+            parts.append('<div style="margin: 80px 0; border-top: 2px dashed #e5e7eb;"></div><h2>🌙 Night Report</h2>')
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', night_html_raw, re.DOTALL | re.IGNORECASE)
+        parts.append(body_match.group(1) if body_match else night_html_raw)
+    
+    if parts:
+        final_body = "".join(parts)
+        final_html = sender.convert_md_to_html(final_body) # 기존 스타일 템플릿 재활용
+        subject = f"[The Whale Hunter] {ref_date} 리포트"
+        sender.send_html_content(final_html, subject)
+    else:
+        print(f"⚠️ 해당 날짜({ref_date})의 리포트 파일이 S3에 없습니다.")
