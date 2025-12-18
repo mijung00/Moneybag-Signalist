@@ -80,6 +80,27 @@ if S3Manager:
     print(f"[INFO] S3 Manager initialized. Bucket: {TARGET_BUCKET}")
 
 # ----------------------------------------------------------------
+# [2.5] S3 비용 절감을 위한 메모리 캐시
+# ----------------------------------------------------------------
+S3_CACHE = {}
+CACHE_TTL = timedelta(hours=1) # 1시간 동안 캐시 유지 (아카이브는 정적 데이터이므로 길게 설정)
+
+def get_s3_content_with_cache(s3_key: str) -> str | None:
+    """S3 콘텐츠를 메모리 캐시와 함께 가져옵니다."""
+    now = datetime.now()
+    
+    # 1. 캐시 확인 (유효 기간 내)
+    if s3_key in S3_CACHE:
+        content, timestamp = S3_CACHE[s3_key]
+        if now - timestamp < CACHE_TTL:
+            return content
+            
+    # 2. 캐시 없으면 S3에서 가져와서 저장
+    content = s3_manager.get_text_content(s3_key)
+    if content: S3_CACHE[s3_key] = (content, now)
+    return content
+
+# ----------------------------------------------------------------
 # [3] 헬퍼 함수들 (DB연결, 스크립트 실행, HTML 정제)
 # ----------------------------------------------------------------
 def get_db_connection():
@@ -208,32 +229,35 @@ def archive_view(service_name, date_str):
     
     prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
-    is_locked = target_date.date() >= today.date()
+    is_locked = target_date.strftime('%Y-%m-%d') >= today.strftime('%Y-%m-%d')
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
 
     content_html = None
     
-    # 잠금 상태가 아닐 때만 S3 데이터 로드
-    if not is_locked and s3_manager:
+    # [수정] 잠금 상태라도 블러 효과(배경)를 위해 데이터는 로드함
+    if s3_manager:
         if service_name == 'signalist':
             s3_key = f"iceage/out/Signalist_Daily_{date_str}.html"
-            raw_html = s3_manager.get_text_content(s3_key)
+            raw_html = get_s3_content_with_cache(s3_key)
             content_html = clean_html_content(raw_html)
             
         elif service_name == 'moneybag' or service_name == 'whalehunter':
+            # [수정] 머니백은 Morning/Night 리포트를 합쳐서 보여줌
             morning_key = f"moneybag/data/out/Moneybag_Letter_Morning_{date_str}.html"
             night_key = f"moneybag/data/out/Moneybag_Letter_Night_{date_str}.html"
             
             # 머니백은 Morning/Night 두 개를 합쳐서 보여줌
-            morning_html = clean_html_content(s3_manager.get_text_content(morning_key))
-            night_html = clean_html_content(s3_manager.get_text_content(night_key))
+            morning_html = clean_html_content(get_s3_content_with_cache(morning_key))
+            night_html = clean_html_content(get_s3_content_with_cache(night_key))
             
             parts = []
-            if morning_html: parts.append(morning_html)
+            if morning_html:
+                parts.append('<h2>☀️ Morning Report</h2>')
+                parts.append(morning_html)
             if night_html:
                 if morning_html:
                     # 중간 구분선
-                    parts.append('<div style="margin: 60px 0; border-top: 2px dashed #e5e7eb;"></div>')
+                    parts.append('<div style="margin: 80px 0; border-top: 2px dashed #e5e7eb;"></div><h2>🌙 Night Report</h2>')
                 parts.append(night_html)
             if parts:
                 content_html = "".join(parts)

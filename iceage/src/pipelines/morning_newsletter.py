@@ -15,6 +15,9 @@ from typing import List
 import requests
 from datetime import date as _date, timedelta, datetime
 from textwrap import dedent
+import tempfile
+import boto3
+from botocore.exceptions import ClientError
 
 # 프로젝트 루트 설정
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -56,21 +59,23 @@ class KisClient:
         self.app_key = os.getenv("KIS_APP_KEY")
         self.app_secret = os.getenv("KIS_APP_SECRET")
         self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
-        self.token_path = PROJECT_ROOT / "kis_token_cache.json"
+        # S3 설정
+        self.bucket_name = "fincore-output-storage"
+        self.s3_key = "config/kis_token.json"
+        self.s3 = boto3.client("s3", region_name="ap-northeast-2")
         self.token = None
 
     def _get_access_token(self):
         if self.token: return self.token
 
-        # 1. 파일 캐시 확인
-        if self.token_path.exists():
-            try:
-                with open(self.token_path, "r") as f:
-                    cache = json.load(f)
-                if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
+        # 1. S3 캐시 확인
+        try:
+            obj = self.s3.get_object(Bucket=self.bucket_name, Key=self.s3_key)
+            cache = json.loads(obj["Body"].read().decode("utf-8"))
+            if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
                     self.token = cache["access_token"]
                     return self.token
-            except: pass
+        except: pass
 
         url = f"{self.base_url}/oauth2/tokenP"
         headers = {"content-type": "application/json"}
@@ -85,14 +90,14 @@ class KisClient:
                 data = res.json()
                 self.token = data["access_token"]
                 
-                # 2. 파일 저장 (내가 처음이면 저장)
+                # 2. S3 저장 (내가 처음이면 저장)
                 try:
                     expires_in = int(data.get("expires_in", 86400))
-                    with open(self.token_path, "w") as f:
-                        json.dump({
-                            "access_token": self.token,
-                            "expires_at": datetime.now().timestamp() + expires_in - 60
-                        }, f)
+                    payload = {
+                        "access_token": self.token,
+                        "expires_at": datetime.now().timestamp() + expires_in - 60
+                    }
+                    self.s3.put_object(Bucket=self.bucket_name, Key=self.s3_key, Body=json.dumps(payload), ContentType="application/json")
                 except: pass
                 
                 return self.token

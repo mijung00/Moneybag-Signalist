@@ -14,6 +14,8 @@ from typing import Optional, Tuple, List, Dict, Set
 
 import requests
 import yfinance as yf
+import boto3
+from botocore.exceptions import ClientError
 from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------------
@@ -122,7 +124,11 @@ class KisClient:
         self.app_key = os.getenv("KIS_APP_KEY")
         self.app_secret = os.getenv("KIS_APP_SECRET")
         self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
-        self.token_path = Path(__file__).resolve().parents[3] / "kis_token_cache.json"
+        # S3 설정 (중앙 토큰 저장소)
+        self.bucket_name = "fincore-output-storage"
+        self.s3_key = "config/kis_token.json"
+        self.s3 = boto3.client("s3", region_name="ap-northeast-2")
+        
         self.token = None
         self.token_expired = None
 
@@ -131,18 +137,19 @@ class KisClient:
         if self.token and self.token_expired and datetime.now(TZ) < self.token_expired:
             return self.token
 
-        # 2. 파일 캐시 확인 (다른 프로세스가 받아둔 것)
-        if self.token_path.exists():
-            try:
-                with open(self.token_path, "r") as f:
-                    cache = json.load(f)
-                # 만료 시간 체크 (Unix Timestamp 비교)
-                if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
+        # 2. S3 캐시 확인 (로컬/서버 공유)
+        try:
+            obj = self.s3.get_object(Bucket=self.bucket_name, Key=self.s3_key)
+            cache = json.loads(obj["Body"].read().decode("utf-8"))
+            # 만료 시간 체크 (Unix Timestamp 비교, 60초 여유)
+            if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
                     self.token = cache["access_token"]
                     self.token_expired = datetime.fromtimestamp(cache["expires_at"], TZ)
                     return self.token
-            except Exception:
-                pass
+        except ClientError:
+            pass # S3에 파일이 없으면 패스
+        except Exception as e:
+            print(f"⚠️ [KIS] S3 토큰 로드 실패: {e}", flush=True)
 
         # 3. API 요청 (새로 발급)
         url = f"{self.base_url}/oauth2/tokenP"
@@ -161,15 +168,16 @@ class KisClient:
             expires_in = int(data.get("expires_in", 86400))
             self.token_expired = datetime.now(TZ) + timedelta(seconds=expires_in - 60)
             
-            # 4. 파일에 저장 (다른 놈들도 쓰라고)
+            # 4. S3에 저장 (모두가 쓰도록)
             try:
-                with open(self.token_path, "w") as f:
-                    json.dump({
-                        "access_token": self.token,
-                        "expires_at": self.token_expired.timestamp()
-                    }, f)
-            except Exception:
-                pass # 파일 쓰기 실패해도 동작은 해야 함
+                payload = {
+                    "access_token": self.token,
+                    "expires_at": self.token_expired.timestamp()
+                }
+                self.s3.put_object(Bucket=self.bucket_name, Key=self.s3_key, Body=json.dumps(payload), ContentType="application/json")
+                print("💾 [KIS] 토큰 S3 저장 완료", flush=True)
+            except Exception as e:
+                print(f"⚠️ [KIS] S3 토큰 저장 실패: {e}", flush=True)
 
             print(f"🔑 [KIS] Access Token 발급 완료 (만료: {self.token_expired})", flush=True)
             return self.token
@@ -387,6 +395,16 @@ class SignalistWatchdog:
         except Exception:
             return ""
 
+    def _is_market_open_time(self, now: datetime) -> bool:
+        """평일 08:30 ~ 16:30 사이인지 확인 (주말 제외)"""
+        # 주말(토=5, 일=6)은 휴식
+        if now.weekday() >= 5:
+            return False
+        # 시간 체크
+        t = now.time()
+        return t >= datetime.strptime("08:30", "%H:%M").time() and \
+               t <= datetime.strptime("16:30", "%H:%M").time()
+
     # ✅ 중요: 브리핑은 “시장 열려있나?”와 무관하게 시간만 맞으면 무조건 실행
     def _send_brief_if_due(self):
         now = self._now()
@@ -482,6 +500,13 @@ class SignalistWatchdog:
             self._send_brief_if_due()
 
             now = self._now()
+            
+            # [추가] 장 운영 시간(08:30~16:30) 외에는 시세 감시 스킵 (API 호출 절약)
+            if not self._is_market_open_time(now):
+                # 왓치독은 살아있어야 하므로(Heartbeat) 프로세스는 유지하되, API만 안 부름
+                time.sleep(POLL_INTERVAL_SEC)
+                continue
+
             for ticker, name in TICKERS.items():
                 price = self._get_price(ticker)
 

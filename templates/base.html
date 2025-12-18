@@ -19,25 +19,6 @@
             color: #111;
         }
 
-        /* GNB 메뉴 스타일 */
-        .nav-link {
-            display: inline-flex;
-            align-items: center;
-            height: 40px;
-            padding: 0 1.5rem;
-            border-radius: 9999px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #9ca3af; /* 비활성: 회색 */
-            transition: all 0.2s;
-        }
-        .nav-link:hover { color: #111; background-color: #f3f4f6; }
-        
-        /* 활성 상태: 검정색 */
-        .nav-link.active {
-            color: #000;
-            font-weight: 800;
-        }
     </style>
 </head>
 <body class="flex flex-col min-h-screen">
@@ -50,17 +31,16 @@
                 <span class="text-xl font-black tracking-tight text-gray-900" style="font-family: 'Pretendard', sans-serif;">FINCORE</span>
             </a>
 
-            <nav class="hidden md:flex items-center space-x-1">
-                <a href="/archive/signalist" class="nav-link {% if 'signalist' in request.path %}active{% endif %}">
+            <nav class="flex items-center space-x-1">
+                <a href="/archive/signalist" class="text-sm font-semibold px-4 py-2 rounded-full transition-colors {% if 'signalist' in request.path %}bg-gray-100 text-black{% else %}text-gray-500 hover:text-black{% endif %}">
                    The Signalist
                 </a>
-                <span class="text-gray-300 text-xs">|</span>
-                <a href="/archive/moneybag" class="nav-link {% if 'moneybag' in request.path or 'whalehunter' in request.path %}active{% endif %}">
+                <a href="/archive/moneybag" class="text-sm font-semibold px-4 py-2 rounded-full transition-colors {% if 'moneybag' in request.path or 'whalehunter' in request.path %}bg-gray-100 text-black{% else %}text-gray-500 hover:text-black{% endif %}">
                    The Whale Hunter
                 </a>
             </nav>
 
-            <div class="shrink-0 w-[100px] text-right">
+            <div class="shrink-0 w-[80px] text-right">
                 <a href="/#subscribe" class="inline-block bg-black text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-gray-800 transition">
                     구독하기
                 </a>

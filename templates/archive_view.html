@@ -55,11 +55,25 @@
                 line-height: 1.8 !important;
                 font-size: 16px !important;
                 width: 100% !important;
+                overflow-x: auto; /* [수정] 모바일에서 표가 잘릴 때 스크롤 가능하게 */
             }
             .report-reset * {
                 background-color: transparent !important; /* 배경 투명화 */
                 box-sizing: border-box !important;
                 max-width: 100% !important;
+            }
+            /* [추가] 테이블 가독성 개선 */
+            .report-reset table {
+                width: 100% !important;
+                min-width: 600px; /* 모바일에서 최소 너비 확보 */
+                border-collapse: collapse !important;
+                margin: 25px 0 !important;
+            }
+            .report-reset th, .report-reset td {
+                border: 1px solid #e5e7eb !important;
+                padding: 12px 15px !important;
+                text-align: center !important;
+                vertical-align: middle !important;
             }
             /* 제목 */
             .report-reset h1, .report-reset h2 {
