@@ -153,6 +153,11 @@ def send_report_email_async(service_name, date_str, recipient_email):
         
         subprocess.run([sys.executable, "-m", module_name, date_str], env=env)
 
+def send_inquiry_email_async(to_email, subject, body, sender_email):
+    """[NEW] 백그라운드에서 제휴문의 이메일을 발송하는 함수 (앱 컨텍스트 포함)"""
+    with app.app_context():
+        send_simple_email(to_email, subject, body, sender_email)
+
 def send_simple_email(to_email, subject, body, sender_email):
     """SendGrid를 사용하여 간단한 텍스트 이메일을 보냅니다."""
     from sendgrid import SendGridAPIClient
@@ -467,7 +472,7 @@ def inquiry():
 {message}
     """
     
-    Thread(target=send_simple_email, args=(admin_email, subject, body, sender_email)).start()
+    Thread(target=send_inquiry_email_async, args=(admin_email, subject, body, sender_email)).start()
     flash("문의 내용이 성공적으로 전송되었습니다. 빠른 시일 내에 회신드리겠습니다. ✅", "success")
     return redirect(redirect_url)
 
