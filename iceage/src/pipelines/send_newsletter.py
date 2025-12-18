@@ -29,10 +29,25 @@ def _get_newsletter_env_suffix() -> str:
 def load_html(ref_date: str) -> str:
     file_name = f"Signalist_Daily_{ref_date}{_get_newsletter_env_suffix()}.html"
     file_path = OUT_DIR / file_name
-    if not file_path.exists():
-        raise FileNotFoundError(f"HTML 파일이 존재하지 않습니다: {file_path}")
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
+    
+    # 1. 로컬 파일 먼저 시도 (Cron 실행 시)
+    if file_path.exists():
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+            
+    # 2. S3에서 가져오기 (웹 앱에서 호출 시)
+    print(f"   -> 로컬 파일 없음. S3에서 '{file_name}' 다운로드 시도...")
+    try:
+        from common.s3_manager import S3Manager
+        s3 = S3Manager(bucket_name="fincore-output-storage")
+        s3_key = f"iceage/out/{file_name}"
+        content = s3.get_text_content(s3_key)
+        if content:
+            return content
+    except Exception as e:
+        print(f"   -> S3 다운로드 실패: {e}")
+
+    raise FileNotFoundError(f"HTML 파일이 로컬과 S3 모두에 존재하지 않습니다: {file_path}")
 
 def load_sns_report_txt(ref_date: str) -> str:
     file_name = f"Signalist_Instagram_{ref_date}.txt"

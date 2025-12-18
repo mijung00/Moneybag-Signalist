@@ -124,6 +124,35 @@ class EmailSender:
             print(f"⚠️ [Skip] HTML 저장 실패: {e}")
             return None
 
+    def send_html_content(self, html_content: str, subject: str):
+        """[NEW] HTML 콘텐츠를 직접 받아서 발송하는 심플 버전"""
+        if not self.api_key: 
+            print("❌ SendGrid API Key가 없습니다.")
+            return
+
+        if not self.to_emails:
+            print("❌ 수신자가 없어 메일을 보내지 않습니다.")
+            return
+
+        sg = SendGridAPIClient(self.api_key)
+        batch_size = 1000
+        total_batches = math.ceil(len(self.to_emails) / batch_size)
+
+        print(f"📧 총 {len(self.to_emails)}명에게 발송 (API Personalization 적용)")
+
+        for i in range(total_batches):
+            batch_emails = self.to_emails[i * batch_size : (i + 1) * batch_size]
+            message = Mail(from_email=self.from_email, subject=subject, html_content=html_content)
+            for email in batch_emails:
+                p = Personalization()
+                p.add_to(To(email))
+                message.add_personalization(p)
+            try:
+                sg.send(message)
+                print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공")
+            except Exception as e:
+                print(f"❌ [Batch {i+1}] 발송 실패: {e}")
+
     def send(self, file_path, mode="morning"):
         if not self.api_key: 
             print("❌ SendGrid API Key가 없습니다.")
