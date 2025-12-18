@@ -125,8 +125,12 @@
                     <input type="hidden" name="action" value="unlock">
                     <input type="hidden" name="service_name" value="{{ service_name }}">
                     <input type="hidden" name="date_str" value="{{ date_str }}">
-                    <input type="email" name="email" required placeholder="name@example.com"
-                           class="w-full px-5 py-3 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all text-center">
+                    <div class="space-y-3">
+                        <input type="email" name="email" required placeholder="이메일 주소 (필수)"
+                               class="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all text-center">
+                        <input type="text" name="name" placeholder="닉네임 (선택)"
+                               class="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all text-center">
+                    </div>
                     <button type="submit" 
                             class="block w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition shadow-md text-sm">
                         <i class="fa-solid fa-envelope mr-2"></i> 리포트 받기

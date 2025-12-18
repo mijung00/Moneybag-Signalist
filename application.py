@@ -221,6 +221,19 @@ def index():
                     sql = "INSERT INTO subscribers (email, name, unsubscribe_token, is_signalist, is_moneybag) VALUES (%s, %s, %s, %s, %s)"
                     cursor.execute(sql, (email, name, token, sub_signalist, sub_moneybag))
                     flash(f"{name}님, 구독해주셔서 감사합니다! 🎉", "success")
+
+                # [수정] 신규/기존 상관없이 구독 신청한 서비스의 최신 리포트 발송
+                if sub_signalist:
+                    latest_signalist_date = get_latest_report_date('signalist')
+                    if latest_signalist_date:
+                        Thread(target=send_report_email_async, args=('signalist', latest_signalist_date, email)).start()
+                        flash("시그널리스트 최신 리포트를 메일로 보내드렸습니다.", "info")
+                if sub_moneybag:
+                    latest_moneybag_date = get_latest_report_date('moneybag')
+                    if latest_moneybag_date:
+                        Thread(target=send_report_email_async, args=('moneybag', latest_moneybag_date, email)).start()
+                        flash("웨일헌터 최신 리포트를 메일로 보내드렸습니다.", "info")
+
             conn.commit()
             conn.close()
         except Exception as e:
@@ -231,6 +244,7 @@ def index():
     # [추가] 아카이브 잠금 해제 요청 시 (최신 리포트 발송)
     if request.method == 'POST' and request.form.get('action') == 'unlock':
         email = request.form.get('email')
+        name = request.form.get('name') # 닉네임도 받아서 구독자 DB에 저장
         service_name = request.form.get('service_name')
         date_str = request.form.get('date_str')
         Thread(target=send_report_email_async, args=(service_name, date_str, email)).start()
@@ -238,6 +252,42 @@ def index():
         return redirect(url_for('archive_view', service_name=service_name, date_str=date_str))
 
     return render_template('index.html')
+
+def get_latest_report_date(service_name: str) -> str | None:
+    """S3에서 서비스별 최신 리포트 날짜를 찾아 반환합니다."""
+    if not s3_manager: return None
+    
+    prefix = "iceage/out/" if service_name == 'signalist' else "moneybag/data/out/"
+    latest_report_date_str = None
+    try:
+        # 1. S3Manager 메서드 시도
+        if hasattr(s3_manager, 'get_latest_file_in_prefix'):
+            latest_file = s3_manager.get_latest_file_in_prefix(prefix)
+            if latest_file:
+                match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+                if match: latest_report_date_str = match.group(1)
+        else:
+            raise AttributeError("Method missing")
+    except Exception:
+        # 2. 실패 시 boto3 직접 조회 (Fallback)
+        try:
+            s3 = boto3.client("s3", region_name="ap-northeast-2")
+            paginator = s3.get_paginator('list_objects_v2')
+            page_iterator = paginator.paginate(Bucket=TARGET_BUCKET, Prefix=prefix)
+            
+            all_files = []
+            for page in page_iterator:
+                if "Contents" in page:
+                    for obj in page["Contents"]:
+                        if re.search(r'(\d{4}-\d{2}-\d{2})\.html', obj["Key"]):
+                            all_files.append(obj["Key"])
+            if all_files:
+                latest_file = sorted(all_files)[-1]
+                match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+                if match: latest_report_date_str = match.group(1)
+        except Exception as e:
+            print(f"⚠️ [S3 Error] 최신 파일 조회 실패: {e}")
+    return latest_report_date_str
 
 @application.route('/archive/<service_name>')
 def archive_latest(service_name):
@@ -254,37 +304,7 @@ def archive_view(service_name, date_str):
 
     # [수정] "가장 최신 리포트 1개"를 잠그는 로직
     # S3에서 해당 서비스의 가장 최신 파일 날짜를 가져옴
-    latest_report_date_str = None
-    if s3_manager:
-        prefix = "iceage/out/" if service_name == 'signalist' else "moneybag/data/out/"
-        try:
-            # 1. S3Manager 메서드 시도
-            if hasattr(s3_manager, 'get_latest_file_in_prefix'):
-                latest_file = s3_manager.get_latest_file_in_prefix(prefix)
-                if latest_file:
-                    match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
-                    if match: latest_report_date_str = match.group(1)
-            else:
-                raise AttributeError("Method missing")
-        except Exception:
-            # 2. 실패 시 boto3 직접 조회 (Fallback)
-            try:
-                s3 = boto3.client("s3", region_name="ap-northeast-2")
-                paginator = s3.get_paginator('list_objects_v2')
-                page_iterator = paginator.paginate(Bucket=TARGET_BUCKET, Prefix=prefix)
-                
-                all_files = []
-                for page in page_iterator:
-                    if "Contents" in page:
-                        for obj in page["Contents"]:
-                            if re.search(r'(\d{4}-\d{2}-\d{2})\.html', obj["Key"]):
-                                all_files.append(obj["Key"])
-                if all_files:
-                    latest_file = sorted(all_files)[-1]
-                    match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
-                    if match: latest_report_date_str = match.group(1)
-            except Exception as e:
-                print(f"⚠️ [S3 Error] 최신 파일 조회 실패: {e}")
+    latest_report_date_str = get_latest_report_date(service_name)
     
     prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
