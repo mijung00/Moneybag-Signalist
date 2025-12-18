@@ -53,6 +53,24 @@ class EmailSender:
             test_recipient = os.getenv("TEST_RECIPIENT")
             return [test_recipient] if test_recipient else []
 
+    def _extract_headline_from_html(self, html_content: str) -> str:
+        """HTML 콘텐츠에서 제목을 추출합니다."""
+        # <title> 태그에서 추출
+        title_match = re.search(r'<title>(.*?)</title>', html_content, re.DOTALL | re.IGNORECASE)
+        if title_match:
+            # "FINCORE | " 접두사 제거
+            title = title_match.group(1).strip()
+            if "FINCORE | " in title:
+                title = title.split("FINCORE | ", 1)[1]
+            return title
+        
+        # <h1> 태그에서 추출
+        h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', html_content, re.DOTALL | re.IGNORECASE)
+        if h1_match:
+            return h1_match.group(1).strip()
+        
+        return "새로운 리포트"
+
     def preprocess_markdown(self, text):
         lines = text.split('\n')
         new_lines = []
@@ -67,6 +85,11 @@ class EmailSender:
         return "\n".join(new_lines)
 
     def convert_md_to_html(self, md_text):
+        html_body = self._render_markdown(md_text)
+        return self._wrap_body_in_template(html_body)
+
+    def _render_markdown(self, md_text):
+        """마크다운 텍스트를 HTML 조각으로 변환합니다."""
         safe_md = self.preprocess_markdown(md_text)
         safe_md = re.sub(r'(?<!\n)\n\s*([-*] )', r'\n\n\1', safe_md)
         safe_md = safe_md.replace("\n**🔥", "\n\n**🔥")
@@ -74,9 +97,11 @@ class EmailSender:
         safe_md = safe_md.replace("\n**2.", "\n\n**2.")
         safe_md = safe_md.replace("\n**3.", "\n\n**3.")
 
-        html_body = markdown.markdown(safe_md, extensions=['tables', 'nl2br'])
-        
-        styled_html = f"""
+        return markdown.markdown(safe_md, extensions=['tables', 'nl2br'])
+
+    def _wrap_body_in_template(self, body_content):
+        """HTML 본문을 받아 전체 이메일 템플릿에 삽입합니다."""
+        return f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -100,7 +125,7 @@ class EmailSender:
         </head>
         <body>
             <div class="container">
-                {html_body}
+                {body_content}
                 <div class="footer">
                     <p>🐋 <b>웨일 헌터의 시크릿 노트</b> | Moneybag Project</p>
                     <p>본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.</p>
@@ -109,7 +134,6 @@ class EmailSender:
         </body>
         </html>
         """
-        return styled_html
 
     def save_html(self, html_content, date_str, mode="morning"):
         try:
@@ -167,10 +191,10 @@ class EmailSender:
         
         headline = "웨일 헌터 브리핑"
         if lines and lines[0].startswith("# "):
-            headline = lines[0].strip().replace("# ", "").replace("🐋 ", "")
+            headline = lines[0].strip().replace("# ", "").replace("🐋 ", "").replace("💰 ", "")
         
         md_text = "".join(lines)
-        html_content = self.convert_md_to_html(md_text)
+        html_content = self._wrap_body_in_template(self._render_markdown(md_text)) # [수정] 마크다운 렌더링 후 템플릿 적용
         
         today_str = datetime.now().strftime("%Y-%m-%d")
         self.save_html(html_content, today_str, mode)
@@ -256,9 +280,18 @@ if __name__ == "__main__":
         parts.append(body_match.group(1) if body_match else night_html_raw)
     
     if parts:
-        final_body = "".join(parts)
-        final_html = sender.convert_md_to_html(final_body) # 기존 스타일 템플릿 재활용
-        subject = f"[The Whale Hunter] {ref_date} 리포트"
-        sender.send_html_content(final_html, subject)
+        # [수정] HTML 조각들을 합친 후, 이메일 템플릿으로 감싸기 (본문만)
+        full_body_html = "".join(parts)
+        final_email_html = sender._wrap_body_in_template(full_body_html)
+        
+        # [수정] 제목 추출 (Morning 또는 Night 리포트에서)
+        headline = ""
+        if morning_html_raw:
+            headline = sender._extract_headline_from_html(morning_html_raw)
+        elif night_html_raw:
+            headline = sender._extract_headline_from_html(night_html_raw)
+        
+        subject = f"[The Whale Hunter] {ref_date} | {headline}" if headline != "새로운 리포트" else f"[The Whale Hunter] {ref_date} 리포트가 도착했습니다."
+        sender.send_html_content(final_email_html, subject)
     else:
         print(f"⚠️ 해당 날짜({ref_date})의 리포트 파일이 S3에 없습니다.")

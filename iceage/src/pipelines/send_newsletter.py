@@ -82,6 +82,24 @@ def get_subscribers(env: str, test_recipient: str, is_auto_send: bool) -> list[s
         print(f"⚠️ [DB Error] 구독자 조회 실패: {e}")
         return [os.getenv("ADMIN_EMAIL")] if os.getenv("ADMIN_EMAIL") else []
 
+def _extract_headline_from_html(html_content: str) -> str:
+    """HTML 콘텐츠에서 제목을 추출합니다."""
+    # <title> 태그에서 추출
+    title_match = re.search(r'<title>(.*?)</title>', html_content, re.DOTALL | re.IGNORECASE)
+    if title_match:
+        # "FINCORE | " 접두사 제거
+        title = title_match.group(1).strip()
+        if "FINCORE | " in title:
+            title = title.split("FINCORE | ", 1)[1]
+        return title
+    
+    # <h1> 태그에서 추출
+    h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', html_content, re.DOTALL | re.IGNORECASE)
+    if h1_match:
+        return h1_match.group(1).strip()
+    
+    return "새로운 리포트"
+
 def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str, from_email: str) -> bool:
     """
     [핵심 수정] SendGrid Personalization을 사용하여 개별 발송 효과 (BCC X, Loop X)
@@ -162,8 +180,13 @@ if __name__ == '__main__':
     print(f"📧 Pipeline start: {ref_date} (env={env})")
     
     try:
-        html_body = load_html(ref_date)
-        subject_newsletter = f"{subject_prefix} {ref_date}"
+        html_body = load_html(ref_date) # [수정] load_html은 이미 전체 HTML을 반환
+        
+        # [수정] HTML 본문에서 제목 추출
+        headline = _extract_headline_from_html(html_body)
+        
+        # [수정] 추출된 제목을 포함하여 subject 생성
+        subject_newsletter = f"{subject_prefix} {ref_date} | {headline}" if headline != "새로운 리포트" else f"{subject_prefix} {ref_date} 리포트"
         
         subscribers = get_subscribers(env, test_recipient, is_send_on)
         

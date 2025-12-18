@@ -6,7 +6,7 @@ import pymysql
 import boto3
 import re
 import subprocess
-from flask import Flask, render_template, request, flash, redirect, url_for
+from flask import Flask, render_template, request, flash, redirect, url_for, Response
 from pathlib import Path
 from datetime import datetime, timedelta
 from botocore.exceptions import ClientError
@@ -288,7 +288,10 @@ def index():
             return redirect(redirect_url)
 
     # GET 요청
-    return render_template('index.html')
+    page_title = "FINCORE | 데이터 기반 투자 시그널"
+    page_description = "Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다."
+    return render_template('index.html', page_title=page_title, page_description=page_description)
+
 
 def get_latest_report_date(service_name: str) -> str | None:
     """S3에서 서비스별 최신 리포트 날짜를 찾아 반환합니다."""
@@ -333,6 +336,15 @@ def archive_view(service_name, date_str):
     # [수정] 최신 리포트 날짜와 같거나 더 미래의 날짜(아직 안 온 날짜 포함)는 모두 잠금
     is_locked = (latest_report_date_str is not None) and (date_str >= latest_report_date_str)
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
+    
+    # [추가] SEO를 위한 동적 메타 태그 생성
+    page_title = f"{display_name} {date_str} 리포트 | FINCORE"
+    page_description = f"{display_name}의 {date_str} 리포트입니다. 주요 시장 분석과 투자 시그널을 확인하세요."
+    if service_name == 'signalist':
+        page_description = f"시그널리스트 {date_str} 리포트. 국내 주식 시장의 수급 이상 징후와 변곡점을 포착합니다."
+    elif service_name == 'moneybag':
+        page_description = f"웨일헌터 {date_str} 리포트. 암호화폐 시장의 고래 움직임을 추적하여 변동성에 대응합니다."
+
 
     content_html = None
     
@@ -373,8 +385,69 @@ def archive_view(service_name, date_str):
         prev_date=prev_date,
         next_date=next_date,
         is_locked=is_locked,
-        today_str=datetime.now().strftime("%Y-%m-%d")
+        today_str=datetime.now().strftime("%Y-%m-%d"),
+        page_title=page_title,
+        page_description=page_description
     )
+
+@application.route('/robots.txt')
+def robots_txt():
+    """검색 로봇 제어 규칙 파일"""
+    rules = [
+        "User-agent: *",
+        "Allow: /",
+        "",
+        "# Disallow admin/backend paths",
+        "Disallow: /run_moneybag_morning",
+        "Disallow: /run_moneybag_night",
+        "Disallow: /run_signalist",
+        "Disallow: /update_stock_data",
+        "",
+        f"Sitemap: {url_for('sitemap_xml', _external=True)}"
+    ]
+    return Response("\n".join(rules), mimetype='text/plain')
+
+@application.route('/sitemap.xml')
+def sitemap_xml():
+    """사이트맵 동적 생성"""
+    # 1. 정적 페이지 추가
+    static_urls = [
+        {'loc': url_for('index', _external=True)},
+        {'loc': url_for('archive_latest', service_name='signalist', _external=True)},
+        {'loc': url_for('archive_latest', service_name='moneybag', _external=True)},
+    ]
+
+    # 2. 동적 페이지 (S3 아카이브) 추가
+    dynamic_urls = []
+    if s3_manager:
+        # Signalist 리포트
+        signalist_files = s3_manager.list_all_files_in_prefix("iceage/out/")
+        for key in signalist_files:
+            match = re.search(r'(\d{4}-\d{2}-\d{2})', key)
+            if match:
+                dynamic_urls.append({
+                    'loc': url_for('archive_view', service_name='signalist', date_str=match.group(1), _external=True)
+                })
+        
+        # Moneybag 리포트 (날짜 중복 제거)
+        moneybag_urls = set()
+        moneybag_files = s3_manager.list_all_files_in_prefix("moneybag/data/out/")
+        for key in moneybag_files:
+            match = re.search(r'(\d{4}-\d{2}-\d{2})', key)
+            if match:
+                moneybag_urls.add(
+                    url_for('archive_view', service_name='moneybag', date_str=match.group(1), _external=True)
+                )
+        
+        for url in sorted(list(moneybag_urls), reverse=True):
+            dynamic_urls.append({'loc': url})
+
+    all_urls = static_urls + dynamic_urls
+    
+    # 3. XML 템플릿 렌더링
+    xml_sitemap = render_template('sitemap.xml', urls=all_urls)
+    response = Response(xml_sitemap, mimetype='application/xml')
+    return response
 
 @application.route('/health')
 def health_check():

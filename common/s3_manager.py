@@ -92,6 +92,24 @@ class S3Manager:
             print(f"❌ [S3 List Error] {e}")
             return None
 
+    def list_all_files_in_prefix(self, prefix):
+        """[SEO용] 특정 경로(prefix)에 있는 모든 파일 키를 리스트로 반환합니다."""
+        try:
+            paginator = self.s3.get_paginator('list_objects_v2')
+            page_iterator = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            
+            all_keys = []
+            for page in page_iterator:
+                if "Contents" in page:
+                    for obj in page["Contents"]:
+                        key = obj["Key"]
+                        if not key.endswith("/"):
+                            all_keys.append(key)
+            return all_keys
+        except Exception as e:
+            print(f"❌ [S3 List Error] {e}")
+            return []
+
     def upload_directory(self, local_dir, s3_prefix, recent_days=2):
         """
         📁 [스마트 동기화] 하위 폴더 포함, 날짜 기준 업로드

@@ -3,8 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}FINCORE{% endblock %}</title>
     
+    <!-- [추가] 네이버 검색엔진 소유 확인 -->
+    <meta name="naver-site-verification" content="eb519328a14cc19cfd2ca61832ec3f46c0a315cc" />
+    
+    <!-- [추가] SEO 메타 태그 -->
+    <meta name="description" content="{% if page_description %}{{ page_description }}{% else %}Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다.{% endif %}">
+    <meta property="og:title" content="{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 시그널{% endif %}">
+    <meta property="og:description" content="{% if page_description %}{{ page_description }}{% else %}Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다.{% endif %}">
+    <meta property="og:image" content="{{ url_for('static', filename='images/og_image.png', _external=True) }}">
+    <meta property="og:url" content="{{ request.url }}">
+
+    <title>{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 시그널{% endif %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
