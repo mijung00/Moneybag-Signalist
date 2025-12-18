@@ -63,7 +63,7 @@ def generate_llm_commentary(analysis: dict, ref_date: str) -> dict:
     2.  `summary`: 위 데이터를 종합하여 지난 한 주간의 시장 특징을 2~3문단으로 분석하는 'Analyst's View'. (예: 특정 테마의 반복적인 등장, 시장 심리의 변화 등)
     3.  `stock_comments`: 가장 자주 포착된 각 종목({', '.join(analysis.get("top_stocks", {}).keys())})에 대해, 왜 자주 포착되었을지 추측하며 1~2줄의 짧은 코멘트. (key: 종목명, value: 코멘트)
 
-    투자 추천은 절대 금지입니다. 데이터 기반의 관찰과 분석에 집중해주세요.
+    "매수/매도 추천"과 같은 직접적인 표현은 절대 금지입니다. "상승 기대감", "과열 주의" 등 데이터 기반의 객관적인 관찰과 분석에 집중해주세요.
     """
     
     system_prompt = "당신은 전문 금융 데이터 분석가이며, 요청된 JSON 형식에 맞춰 응답합니다."

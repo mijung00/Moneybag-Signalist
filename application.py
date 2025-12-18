@@ -97,9 +97,13 @@ def get_s3_content_with_cache(s3_key: str) -> str | None:
             return content
             
     # 2. 캐시 없으면 S3에서 가져와서 저장
-    content = s3_manager.get_text_content(s3_key)
-    if content: S3_CACHE[s3_key] = (content, now)
-    return content
+    try:
+        content = s3_manager.get_text_content(s3_key)
+        if content: S3_CACHE[s3_key] = (content, now)
+        return content
+    except Exception as e:
+        print(f"⚠️ [S3 Read Error] {s3_key}: {e}")
+        return None
 
 # ----------------------------------------------------------------
 # [3] 헬퍼 함수들 (DB연결, 스크립트 실행, HTML 정제)
@@ -253,10 +257,34 @@ def archive_view(service_name, date_str):
     latest_report_date_str = None
     if s3_manager:
         prefix = "iceage/out/" if service_name == 'signalist' else "moneybag/data/out/"
-        latest_file = s3_manager.get_latest_file_in_prefix(prefix)
-        if latest_file:
-            match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
-            if match: latest_report_date_str = match.group(1)
+        try:
+            # 1. S3Manager 메서드 시도
+            if hasattr(s3_manager, 'get_latest_file_in_prefix'):
+                latest_file = s3_manager.get_latest_file_in_prefix(prefix)
+                if latest_file:
+                    match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+                    if match: latest_report_date_str = match.group(1)
+            else:
+                raise AttributeError("Method missing")
+        except Exception:
+            # 2. 실패 시 boto3 직접 조회 (Fallback)
+            try:
+                s3 = boto3.client("s3", region_name="ap-northeast-2")
+                paginator = s3.get_paginator('list_objects_v2')
+                page_iterator = paginator.paginate(Bucket=TARGET_BUCKET, Prefix=prefix)
+                
+                all_files = []
+                for page in page_iterator:
+                    if "Contents" in page:
+                        for obj in page["Contents"]:
+                            if re.search(r'(\d{4}-\d{2}-\d{2})\.html', obj["Key"]):
+                                all_files.append(obj["Key"])
+                if all_files:
+                    latest_file = sorted(all_files)[-1]
+                    match = re.search(r'(\d{4}-\d{2}-\d{2})\.html', latest_file)
+                    if match: latest_report_date_str = match.group(1)
+            except Exception as e:
+                print(f"⚠️ [S3 Error] 최신 파일 조회 실패: {e}")
     
     prev_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     next_date = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
