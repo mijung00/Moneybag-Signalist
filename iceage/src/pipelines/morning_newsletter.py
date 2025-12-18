@@ -12,6 +12,7 @@ import pandas as pd
 from pathlib import Path
 import csv
 from typing import List
+import requests
 from datetime import date as _date, timedelta, datetime
 from textwrap import dedent
 
@@ -55,8 +56,22 @@ class KisClient:
         self.app_key = os.getenv("KIS_APP_KEY")
         self.app_secret = os.getenv("KIS_APP_SECRET")
         self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
+        self.token_path = PROJECT_ROOT / "kis_token_cache.json"
+        self.token = None
 
     def _get_access_token(self):
+        if self.token: return self.token
+
+        # 1. 파일 캐시 확인
+        if self.token_path.exists():
+            try:
+                with open(self.token_path, "r") as f:
+                    cache = json.load(f)
+                if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
+                    self.token = cache["access_token"]
+                    return self.token
+            except: pass
+
         url = f"{self.base_url}/oauth2/tokenP"
         headers = {"content-type": "application/json"}
         body = {
@@ -67,7 +82,20 @@ class KisClient:
         try:
             res = requests.post(url, json=body, timeout=5)
             if res.status_code == 200:
-                return res.json()["access_token"]
+                data = res.json()
+                self.token = data["access_token"]
+                
+                # 2. 파일 저장 (내가 처음이면 저장)
+                try:
+                    expires_in = int(data.get("expires_in", 86400))
+                    with open(self.token_path, "w") as f:
+                        json.dump({
+                            "access_token": self.token,
+                            "expires_at": datetime.now().timestamp() + expires_in - 60
+                        }, f)
+                except: pass
+                
+                return self.token
         except: pass
         return None
 
@@ -93,22 +121,113 @@ class KisClient:
         except: pass
         return None
 
+# ---------------------------------------------------------------------
+# ✅ 네이버 금융 클라이언트 (API 키 없이 무료 사용)
+# ---------------------------------------------------------------------
+class NaverClient:
+    def get_index(self, symbol: str) -> tuple[float, float] | None:
+        """
+        네이버 모바일 API를 통해 지수 조회
+        symbol: KOSPI, KOSDAQ, NAS@IXIC(나스닥), SPI@SPX(S&P500), DJI@DJI(다우)
+        반환: (현재가, 등락률)
+        """
+        try:
+            # 국내/해외 URL 분기
+            if symbol in ["KOSPI", "KOSDAQ"]:
+                url = f"https://m.stock.naver.com/api/index/{symbol}/basic"
+            else:
+                url = f"https://api.stock.naver.com/index/{symbol}/basic"
+            
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                price = float(data['closePrice'].replace(',', ''))
+                rate = float(data['fluctuationRate'])
+                return price, rate
+        except Exception:
+            pass
+        return None
+
+    def get_exchange(self, symbol="FX_USDKRW") -> tuple[float, float] | None:
+        """환율 조회 (기본: 원달러)"""
+        try:
+            url = f"https://m.stock.naver.com/front-api/marketIndex/productDetail?category=exchange&reutersCode={symbol}"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            if res.status_code == 200:
+                data = res.json()['result']
+                price = float(data['closePrice'].replace(',', ''))
+                rate = float(data['fluctuationRate'])
+                return price, rate
+        except: pass
+        return None
+
+    def get_oil(self, symbol="OIL_CL") -> tuple[float, float] | None:
+        """유가 조회 (기본: WTI)"""
+        try:
+            url = f"https://m.stock.naver.com/front-api/marketIndex/productDetail?category=oil&reutersCode={symbol}"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            if res.status_code == 200:
+                data = res.json()['result']
+                price = float(data['closePrice'].replace(',', ''))
+                rate = float(data['fluctuationRate'])
+                return price, rate
+        except: pass
+        return None
+
+# 캐시 추가 (중복 호출 방지)
+_MARKET_OVERVIEW_CACHE = {}
+
 def get_market_overview_safe(ref_date) -> dict:
     """기존 데이터 조회 실패 시 KIS API로 국내 지수 심폐소생"""
-    try: snap = get_market_overview(ref_date)
-    except: snap = {}
+    ref_str = str(ref_date)
+    if ref_str in _MARKET_OVERVIEW_CACHE:
+        return _MARKET_OVERVIEW_CACHE[ref_str]
+
+    # yfinance(get_market_overview) 호출을 제거하고 직접 구성
+    # yfinance가 타임아웃/에러를 유발하므로 Naver/KIS로 대체
+    snap = {"indices": {}, "fx": {}, "commodities": {}, "crypto": {}}
     
     indices = snap.setdefault("indices", {})
+    fx = snap.setdefault("fx", {})
+    commodities = snap.setdefault("commodities", {})
     
-    # KIS API로 KOSPI/KOSDAQ 빈칸 채우기
-    if ("KOSPI" not in indices or "KOSDAQ" not in indices) and os.getenv("KIS_APP_KEY"):
+    # 1. KIS API로 KOSPI/KOSDAQ (가장 정확)
+    if os.getenv("KIS_APP_KEY"):
         kis = KisClient()
-        if "KOSPI" not in indices:
-            k_data = kis.get_index_price("0001")
-            if k_data: indices["KOSPI"] = k_data
-        if "KOSDAQ" not in indices:
-            k_data = kis.get_index_price("1001")
-            if k_data: indices["KOSDAQ"] = k_data
+        k_data = kis.get_index_price("0001")
+        if k_data: indices["KOSPI"] = k_data
+        k_data = kis.get_index_price("1001")
+        if k_data: indices["KOSDAQ"] = k_data
+
+    # 2. Naver Finance로 나머지 채우기 (미국 지수, 환율, 유가)
+    nc = NaverClient()
+    
+    # 지수 (KIS가 실패했거나 미국 지수)
+    if "KOSPI" not in indices:
+        d = nc.get_index("KOSPI")
+        if d: indices["KOSPI"] = d
+    if "KOSDAQ" not in indices:
+        d = nc.get_index("KOSDAQ")
+        if d: indices["KOSDAQ"] = d
+        
+    d = nc.get_index("SPI@SPX"); 
+    if d: indices["S&P 500"] = d
+    d = nc.get_index("NAS@IXIC"); 
+    if d: indices["NASDAQ"] = d
+    d = nc.get_index("DJI@DJI"); 
+    if d: indices["Dow Jones"] = d
+    
+    # 환율
+    d = nc.get_exchange("FX_USDKRW"); 
+    if d: fx["USD/KRW"] = d
+    d = nc.get_exchange("FX_DX"); # 달러인덱스
+    if d: fx["DXY"] = d
+    
+    # 원자재
+    d = nc.get_oil("OIL_CL"); 
+    if d: commodities["WTI"] = d
+
+    _MARKET_OVERVIEW_CACHE[ref_str] = snap
     return snap
 
 def _get_newsletter_env_suffix() -> str:

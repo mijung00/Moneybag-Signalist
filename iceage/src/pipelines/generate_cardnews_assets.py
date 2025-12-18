@@ -23,7 +23,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from iceage.src.pipelines.final_strategy_selector import StrategySelector
-from iceage.src.data_sources.market_snapshot import get_market_overview
+# [수정] yfinance 직접 호출 대신, 안정화된 뉴스레터의 데이터 로더를 사용
+from iceage.src.pipelines.morning_newsletter import get_market_overview_safe
 
 # --- 설정 ---
 ASSETS_DIR = PROJECT_ROOT / "iceage" / "assets"

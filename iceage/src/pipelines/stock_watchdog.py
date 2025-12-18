@@ -7,6 +7,7 @@ import signal
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from collections import deque
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple, List, Dict, Set
@@ -121,14 +122,29 @@ class KisClient:
         self.app_key = os.getenv("KIS_APP_KEY")
         self.app_secret = os.getenv("KIS_APP_SECRET")
         self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
+        self.token_path = Path(__file__).resolve().parents[3] / "kis_token_cache.json"
         self.token = None
         self.token_expired = None
 
     def _get_access_token(self):
-        # 토큰이 있고 만료되지 않았으면 재사용 (여유 1분)
+        # 1. 메모리 캐시 확인 (가장 빠름)
         if self.token and self.token_expired and datetime.now(TZ) < self.token_expired:
             return self.token
 
+        # 2. 파일 캐시 확인 (다른 프로세스가 받아둔 것)
+        if self.token_path.exists():
+            try:
+                with open(self.token_path, "r") as f:
+                    cache = json.load(f)
+                # 만료 시간 체크 (Unix Timestamp 비교)
+                if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
+                    self.token = cache["access_token"]
+                    self.token_expired = datetime.fromtimestamp(cache["expires_at"], TZ)
+                    return self.token
+            except Exception:
+                pass
+
+        # 3. API 요청 (새로 발급)
         url = f"{self.base_url}/oauth2/tokenP"
         headers = {"content-type": "application/json"}
         body = {
@@ -144,6 +160,17 @@ class KisClient:
             # 만료 시간 설정 (기본 24시간이지만 안전하게 계산)
             expires_in = int(data.get("expires_in", 86400))
             self.token_expired = datetime.now(TZ) + timedelta(seconds=expires_in - 60)
+            
+            # 4. 파일에 저장 (다른 놈들도 쓰라고)
+            try:
+                with open(self.token_path, "w") as f:
+                    json.dump({
+                        "access_token": self.token,
+                        "expires_at": self.token_expired.timestamp()
+                    }, f)
+            except Exception:
+                pass # 파일 쓰기 실패해도 동작은 해야 함
+
             print(f"🔑 [KIS] Access Token 발급 완료 (만료: {self.token_expired})", flush=True)
             return self.token
         except Exception as e:
