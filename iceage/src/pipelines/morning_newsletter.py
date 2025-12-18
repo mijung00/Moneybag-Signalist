@@ -47,6 +47,70 @@ from common.s3_manager import S3Manager
 # LLM 캐시
 _LLM_BUNDLE_CACHE: dict[str, dict] = {}
 
+# ---------------------------------------------------------------------
+# ✅ 한국투자증권(KIS) API 클라이언트 (뉴스레터용)
+# ---------------------------------------------------------------------
+class KisClient:
+    def __init__(self):
+        self.app_key = os.getenv("KIS_APP_KEY")
+        self.app_secret = os.getenv("KIS_APP_SECRET")
+        self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
+
+    def _get_access_token(self):
+        url = f"{self.base_url}/oauth2/tokenP"
+        headers = {"content-type": "application/json"}
+        body = {
+            "grant_type": "client_credentials",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret
+        }
+        try:
+            res = requests.post(url, json=body, timeout=5)
+            if res.status_code == 200:
+                return res.json()["access_token"]
+        except: pass
+        return None
+
+    def get_index_price(self, market_code: str) -> tuple[float, float] | None:
+        """(현재가, 등락률) 반환. 실패 시 None"""
+        token = self._get_access_token()
+        if not token: return None
+
+        url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
+        headers = {
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
+            "tr_id": "FHKUP03500100", "custtype": "P"
+        }
+        params = {"fid_cond_mrkt_div_code": "U", "fid_input_iscd": market_code}
+        try:
+            res = requests.get(url, headers=headers, params=params, timeout=5)
+            if res.status_code == 200 and res.json()['rt_cd'] == '0':
+                out = res.json()['output']
+                return float(out['bstp_nmix_prpr']), float(out['bstp_nmix_prdy_ctrt'])
+        except: pass
+        return None
+
+def get_market_overview_safe(ref_date) -> dict:
+    """기존 데이터 조회 실패 시 KIS API로 국내 지수 심폐소생"""
+    try: snap = get_market_overview(ref_date)
+    except: snap = {}
+    
+    indices = snap.setdefault("indices", {})
+    
+    # KIS API로 KOSPI/KOSDAQ 빈칸 채우기
+    if ("KOSPI" not in indices or "KOSDAQ" not in indices) and os.getenv("KIS_APP_KEY"):
+        kis = KisClient()
+        if "KOSPI" not in indices:
+            k_data = kis.get_index_price("0001")
+            if k_data: indices["KOSPI"] = k_data
+        if "KOSDAQ" not in indices:
+            k_data = kis.get_index_price("1001")
+            if k_data: indices["KOSDAQ"] = k_data
+    return snap
+
 def _get_newsletter_env_suffix() -> str:
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
     if env in ("", "prod"):
@@ -59,8 +123,7 @@ def _build_llm_payload(ref_date: str) -> dict:
     ref = _date.fromisoformat(ref_date)
     
     # (1) 시장 요약
-    try: snap = get_market_overview(ref)
-    except: snap = {}
+    snap = get_market_overview_safe(ref)
     
     headline_bits = []
     indices = snap.get("indices", {})
@@ -174,11 +237,7 @@ def section_header_intro(ref_date: str) -> str:
     market_summary = bundle.get("market_one_liner") or ""
     
     ref = _date.fromisoformat(ref_date)
-    try:
-        snap = get_market_overview(ref)
-    except Exception as e:
-        print(f"🚨 [ERROR] get_market_overview failed in section_header_intro: {e}")
-        snap = {}
+    snap = get_market_overview_safe(ref)
     
     indices = snap.get("indices", {})
     fx = snap.get("fx", {})
@@ -347,7 +406,7 @@ def _get_internal_events(ref_date: str) -> dict[str, str]:
 def section_market_thermometer(ref_date: str) -> str:
     ref = _date.fromisoformat(ref_date)
     try:
-        snap = get_market_overview(ref)
+        snap = get_market_overview_safe(ref)
         indices = snap.get("indices", {})
         changes = []
         if "KOSPI" in indices: changes.append(indices["KOSPI"][1])
@@ -505,11 +564,7 @@ def section_news_digest(ref_date: str) -> str:
 
 def section_global_minute(ref_date: str) -> str:
     ref = _date.fromisoformat(ref_date)
-    try:
-        snap = get_market_overview(ref)
-    except Exception as e:
-        print(f"🚨 [ERROR] get_market_overview failed in section_global_minute: {e}")
-        snap = {}
+    snap = get_market_overview_safe(ref)
     indices = snap.get("indices", {})
     fx = snap.get("fx", {})
     commodities = snap.get("commodities", {})
@@ -627,7 +682,7 @@ def section_numbers_that_matter(ref_date: str) -> str:
     for back in range(4, -1, -1):
         d = ref - timedelta(days=back)
         try:
-            snap = get_market_overview(d)
+            snap = get_market_overview_safe(d)
             fx = snap.get("fx", {})
             if "USD/KRW" in fx: fx_series.append((d, fx["USD/KRW"][0]))
         except: continue
