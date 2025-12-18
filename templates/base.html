@@ -85,7 +85,12 @@
             <!-- [수정] 네비게이션을 헤더 밖으로 빼고, 공간을 채우기 위한 빈 div 추가 -->
             <div class="flex-1"></div>
 
-            <div class="shrink-0 text-right">
+            <div class="shrink-0 text-right flex items-center space-x-2">
+                <!-- [추가] 제휴문의 버튼 -->
+                <button id="inquiry-btn" class="inline-block text-gray-500 text-xs font-bold px-4 py-2 rounded-full hover:bg-gray-100 hover:text-gray-900 transition">
+                    제휴문의
+                </button>
+
                 <a href="/#subscribe" class="inline-block bg-black text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-gray-800 transition">
                     구독하기
                 </a>
@@ -118,6 +123,34 @@
     <main class="flex-grow w-full max-w-3xl mx-auto px-4 py-8">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- [추가] 제휴문의 모달 -->
+    <div id="inquiry-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+        <div id="inquiry-modal-content" class="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+            <button id="inquiry-modal-close" class="absolute top-3 right-3 text-gray-400 hover:text-gray-800">
+                <i class="fas fa-times fa-lg"></i>
+            </button>
+            <h3 class="text-lg font-bold mb-4">제휴 문의</h3>
+            <p class="text-sm text-gray-500 mb-6">
+                Fincore와의 파트너십, 콘텐츠 제휴, 기타 문의사항을 보내주세요.<br>담당자가 확인 후 회신드리겠습니다.
+            </p>
+            <form action="{{ url_for('inquiry') }}" method="POST">
+                <div class="mb-4">
+                    <label for="inquiry_email" class="block text-sm font-medium text-gray-700 mb-1">회신받을 이메일</label>
+                    <input type="email" name="email" id="inquiry_email" required class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="your-email@example.com">
+                </div>
+                <div class="mb-6">
+                    <label for="inquiry_message" class="block text-sm font-medium text-gray-700 mb-1">문의 내용</label>
+                    <textarea name="message" id="inquiry_message" rows="5" required class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="문의하실 내용을 자유롭게 작성해주세요."></textarea>
+                </div>
+                <div class="text-right">
+                    <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        보내기
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <footer class="bg-white border-t border-gray-200 mt-auto py-8">
         <div class="max-w-3xl mx-auto px-6 text-center">
@@ -152,6 +185,27 @@
                     table.parentNode.insertBefore(indicator, table.nextSibling);
                 }
             });
+        });
+
+        // [추가] 제휴문의 모달 스크립트
+        const inquiryBtn = document.getElementById('inquiry-btn');
+        const inquiryModal = document.getElementById('inquiry-modal');
+        const inquiryModalClose = document.getElementById('inquiry-modal-close');
+        const inquiryModalContent = document.getElementById('inquiry-modal-content');
+
+        inquiryBtn.addEventListener('click', () => {
+            inquiryModal.classList.remove('hidden');
+            inquiryModal.classList.add('flex');
+        });
+
+        const closeModal = () => {
+            inquiryModal.classList.add('hidden');
+            inquiryModal.classList.remove('flex');
+        };
+
+        inquiryModalClose.addEventListener('click', closeModal);
+        inquiryModal.addEventListener('click', (e) => {
+            if (e.target === inquiryModal) closeModal();
         });
     </script>
 

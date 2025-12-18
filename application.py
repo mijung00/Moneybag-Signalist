@@ -153,6 +153,36 @@ def send_report_email_async(service_name, date_str, recipient_email):
         
         subprocess.run([sys.executable, "-m", module_name, date_str], env=env)
 
+def send_simple_email(to_email, subject, body, sender_email):
+    """SendGrid를 사용하여 간단한 텍스트 이메일을 보냅니다."""
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail
+
+    api_key = config.get_env("SENDGRID_API_KEY")
+    if not api_key:
+        print("❌ [Email Error] SendGrid API Key가 없습니다.")
+        return False
+    
+    # [수정] 보내는 사람 이름을 Fincore로 고정, 답장 주소는 문의한 사람의 이메일로 설정
+    from_email = "Fincore <admin@fincore.co.kr>"
+
+    message = Mail(
+        from_email=from_email,
+        to_emails=to_email,
+        subject=subject,
+        html_content=f"<pre style='font-family: sans-serif; white-space: pre-wrap; font-size: 14px;'>{body}</pre>"
+    )
+    message.reply_to = sender_email # 답장 버튼 클릭 시 문의자에게 바로 답장하도록 설정
+
+    try:
+        sg = SendGridAPIClient(api_key)
+        sg.send(message)
+        print(f"✅ [Inquiry Email Sent] To: {to_email}, Subject: {subject}")
+        return True
+    except Exception as e:
+        print(f"❌ [Inquiry Email Error] {e}")
+        return False
+
 # ================================================================
 # 🌐 [PART A] 태스크 러너 라우트 (AWS/Cron 호출용)
 # ================================================================
@@ -288,9 +318,34 @@ def index():
             return redirect(redirect_url)
 
     # GET 요청
+    # [추가] 최근 리포트 정보 가져오기
+    recent_reports = []
+    try:
+        # 시그널리스트 최신 리포트
+        signalist_latest_date = get_latest_report_date('signalist')
+        if signalist_latest_date:
+            recent_reports.append({
+                'service_name': 'signalist',
+                'display_name': 'The Signalist',
+                'date_str': signalist_latest_date,
+                'url': url_for('archive_view', service_name='signalist', date_str=signalist_latest_date)
+            })
+        
+        # 웨일헌터 최신 리포트
+        moneybag_latest_date = get_latest_report_date('moneybag')
+        if moneybag_latest_date:
+            recent_reports.append({
+                'service_name': 'moneybag',
+                'display_name': 'The Whale Hunter',
+                'date_str': moneybag_latest_date,
+                'url': url_for('archive_view', service_name='moneybag', date_str=moneybag_latest_date)
+            })
+    except Exception as e:
+        print(f"⚠️ [Recent Reports Error] {e}")
+
     page_title = "FINCORE | 데이터 기반 투자 시그널"
     page_description = "Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다."
-    return render_template('index.html', page_title=page_title, page_description=page_description)
+    return render_template('index.html', page_title=page_title, page_description=page_description, recent_reports=recent_reports)
 
 
 def get_latest_report_date(service_name: str) -> str | None:
@@ -389,6 +444,32 @@ def archive_view(service_name, date_str):
         page_title=page_title,
         page_description=page_description
     )
+
+@application.route('/inquiry', methods=['POST'])
+def inquiry():
+    """제휴문의 처리 라우트"""
+    sender_email = request.form.get('email')
+    message = request.form.get('message')
+    redirect_url = request.referrer or url_for('index')
+
+    if not sender_email or not message:
+        flash("이메일과 문의 내용을 모두 입력해주세요.", "error")
+        return redirect(redirect_url)
+
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@fincore.co.kr")
+    subject = f"[Fincore 제휴문의] {sender_email} 님으로부터"
+    
+    body = f"""
+<b>보낸 사람:</b> {sender_email}
+<b>문의 시각:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+--------------------------------------------------
+
+{message}
+    """
+    
+    Thread(target=send_simple_email, args=(admin_email, subject, body, sender_email)).start()
+    flash("문의 내용이 성공적으로 전송되었습니다. 빠른 시일 내에 회신드리겠습니다. ✅", "success")
+    return redirect(redirect_url)
 
 @application.route('/robots.txt')
 def robots_txt():
