@@ -177,7 +177,6 @@ def send_simple_email(to_email, subject, body, sender_email):
         subject=subject,
         html_content=f"<pre style='font-family: sans-serif; white-space: pre-wrap; font-size: 14px;'>{body}</pre>"
     )
-    message.reply_to = sender_email # 답장 버튼 클릭 시 문의자에게 바로 답장하도록 설정
 
     try:
         sg = SendGridAPIClient(api_key)
