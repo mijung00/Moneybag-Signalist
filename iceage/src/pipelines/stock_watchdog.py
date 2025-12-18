@@ -182,7 +182,7 @@ class SignalistWatchdog:
 
         self._open_brief_date = None
         self._close_brief_date = None
-        self._test_alert_sent = False # ✅ 테스트 알림 1회 발송용 플래그
+        self._test_attempts = 0  # ✅ 테스트 시도 횟수 카운터
 
         self._stop = False
         signal.signal(signal.SIGTERM, self._on_stop)
@@ -196,24 +196,26 @@ class SignalistWatchdog:
 
     def _get_price(self, ticker: str) -> Optional[float]:
         """
-        yfinance를 통해 현재가를 조회. fast_info가 빠르지만 실패하거나 장중 업데이트가 안될 수 있어,
-        실패 시 history()를 fallback으로 사용해 안정성을 높임.
+        yfinance를 통해 현재가를 조회. 각 단계별로 상세한 로그를 남김.
         """
         try:
-            # 1. 빠르지만 가끔 실패하거나 오래된 데이터를 주는 fast_info 먼저 시도
             price = float(yf.Ticker(ticker).fast_info["last_price"])
+            logging.info(f"💡 [Price] {ticker} fast_info 조회 성공: {price}")
             return price
-        except Exception:
-            # 2. fast_info 실패 시, history()로 재시도 (더 안정적)
-            logging.warning(f"⚠️ [Price] {ticker} fast_info 조회 실패, history()로 재시도")
+        except Exception as e1:
+            logging.warning(f"⚠️ [Price] {ticker} fast_info 조회 실패 ({type(e1).__name__}), history()로 재시도")
             try:
                 data = yf.Ticker(ticker).history(period="1d")
                 if data is not None and not data.empty:
-                    return float(data["Close"].iloc[-1])
-            except Exception as e_inner:
-                logging.error(f"⚠️ [Price] {ticker} history() 조회도 실패: {e_inner}")
+                    price = float(data["Close"].iloc[-1])
+                    logging.info(f"💡 [Price] {ticker} history() 조회 성공: {price}")
+                    return price
+                else:
+                    logging.warning(f"⚠️ [Price] {ticker} history()가 비어있는 데이터를 반환함.")
+                    return None
+            except Exception as e2:
+                logging.error(f"❌ [Price] {ticker} history() 조회도 실패: {e2}")
                 return None
-        return None
 
     def _pct_over_minutes(self, ticker: str, minutes: int) -> Optional[float]:
         h = self.hist[ticker]
@@ -364,15 +366,25 @@ class SignalistWatchdog:
             now = self._now()
             for ticker, name in TICKERS.items():
                 price = self._get_price(ticker)
+
+                # --- 테스트 로직: 시작 후 몇 번의 시도 후 성공/실패 여부 알림 ---
+                # TODO: 테스트 완료 후 이 블록을 삭제하세요.
+                if self._test_attempts < 5:
+                    if price is not None:
+                        # On first success, send message and stop testing
+                        if self._test_attempts >= 0:
+                            self.tg.send(f"✅ [Signalist Test] '{name}' 가격 조회 성공. 현재 지수: {price:,.2f}")
+                            self._test_attempts = 999 # 성공했으므로 테스트 중단
+                    else:
+                        # If price is None, increment counter and maybe report failure
+                        self._test_attempts += 1
+                        if self._test_attempts >= 5:
+                            # After 5 failures, send a failure message
+                            self.tg.send(f"❌ [Signalist Test] 5회 시도 후에도 '{name}' 가격 조회 실패. yfinance 라이브러리 또는 네트워크 문제를 확인하세요.")
+                # --- 테스트 로직 끝 ---
+
                 if price is None:
                     continue
-                
-                # --- 테스트 로직: 시작 후 첫 가격 조회 성공 시 1회 알림 ---
-                # TODO: 테스트 완료 후 이 블록을 삭제하세요.
-                if not self._test_alert_sent:
-                    self.tg.send(f"🧪 [Signalist Test] '{name}' 감시 시작. 현재 지수: {price:,.2f}")
-                    self._test_alert_sent = True # 모든 티커 중 하나에 대해서만 1회 실행
-                # --- 테스트 로직 끝 ---
 
                 self.hist[ticker].append((now, price))
                 self._ensure_daily_state(ticker, price)
