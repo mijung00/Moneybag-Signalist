@@ -183,4 +183,38 @@ class EmailSender:
                 print(f"❌ [Batch {i+1}] 발송 실패: {e}")
 
 if __name__ == "__main__":
-    pass
+    # [수정] CLI 실행 시 단건 발송 로직 구현
+    import sys
+    
+    # 1. 인자 파싱
+    ref_date = None
+    if len(sys.argv) > 1:
+        ref_date = sys.argv[1]
+    else:
+        ref_date = datetime.now().strftime("%Y-%m-%d")
+
+    # 2. 환경변수에서 수신자 확인 (application.py가 설정함)
+    recipient = os.getenv("TEST_RECIPIENT")
+    
+    print(f"📧 [Moneybag Email] 수동 발송 시작: {ref_date} -> {recipient}")
+
+    if not recipient:
+        print("❌ 수신자(TEST_RECIPIENT)가 지정되지 않았습니다.")
+        sys.exit(0)
+
+    # 3. 해당 날짜의 파일 찾기 (Morning/Night 둘 다 시도)
+    sender = EmailSender()
+    # 강제로 수신자 리스트 덮어쓰기 (단건 발송용)
+    sender.to_emails = [recipient]
+
+    found = False
+    for mode in ["Morning", "Night"]:
+        filename = f"Moneybag_Letter_{mode}_{ref_date}.html"
+        file_path = OUTPUT_DIR / filename
+        if file_path.exists():
+            print(f"   👉 {mode} 리포트 발송 중...")
+            sender.send(str(file_path), mode=mode.lower())
+            found = True
+    
+    if not found:
+        print(f"⚠️ 해당 날짜({ref_date})의 리포트 파일이 없습니다.")

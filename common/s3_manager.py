@@ -1,6 +1,7 @@
 import boto3
 import os
 import time
+import re
 from datetime import datetime, timedelta
 from botocore.exceptions import NoCredentialsError, ClientError
 
@@ -76,8 +77,17 @@ class S3Manager:
             if not all_files:
                 return None
             
-            # 파일명에 날짜가 들어간다고 가정하고 정렬 (문자열 정렬)
-            return sorted(all_files)[-1]
+            # [수정] 단순 문자열 정렬이 아닌, '날짜'를 추출해서 정렬
+            def _extract_date(fname):
+                # YYYY-MM-DD 패턴 찾기
+                match = re.search(r'(\d{4}-\d{2}-\d{2})', fname)
+                if match:
+                    return match.group(1)
+                return "0000-00-00" # 날짜 없으면 맨 뒤로
+
+            # 날짜 기준 오름차순 정렬 -> 같은 날짜면 파일명(Morning/Night) 순
+            sorted_files = sorted(all_files, key=lambda x: (_extract_date(x), x))
+            return sorted_files[-1]
         except Exception as e:
             print(f"❌ [S3 List Error] {e}")
             return None
