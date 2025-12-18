@@ -26,11 +26,6 @@ POLL_INTERVAL_SEC = 10
 TH_15M_PCT = 1.5     # 예: 0.8% 이상이면 알림 고려
 TH_60M_PCT = 3.0     # 예: 2.5% 이상이면 알림 고려
 
-# --- 테스트용 임시 기준 ---
-# 1분간 0.01% 변동 시 알림 (테스트 후 이 두 줄은 삭제하세요)
-TH_1M_PCT_TEST = 0.01
-# --------------------------
-
 # 10분 급가속(추세 가속) 기준
 ACCEL_10M_PCT = 2.0  # 예: 10분에 1.2% 이상이면 “급가속” 알림
 
@@ -224,13 +219,13 @@ class MarketWatchdog:
                 lines.append(f"- {sym}: 현재가 {p:,.2f} / 24시간 {chg24:+.2f}%")
         return "\n".join(lines)
 
-    def _maybe_llm(self, symbol: str, price: float, pct15: Optional[float], pct60: Optional[float], pct10: Optional[float]) -> str:
+    def _maybe_llm(self, user_prompt: str) -> str:
         if not _chat:
             return ""
         try:
+            # 시스템 프롬프트는 그대로 유지
             system = "너는 'The Whale Hunter'의 시장 관측 애널리스트다. 투자 조언이 아니라 시장 설명만 드라이하게 제공한다."
-            user = f"심볼={symbol}, 가격={price}, 10m={pct10}, 15m={pct15}, 60m={pct60}. 지금 상황을 3~5줄로 설명해줘."
-            return _chat(system, user) or ""
+            return (_chat(system, user_prompt) or "").strip()
         except Exception as e:
             err_msg = f"❌ [AI 에러] : {e}"
             print(f"⚠️ [LLM] 실패: {e}", flush=True)
@@ -305,16 +300,12 @@ class MarketWatchdog:
 
                 self.price_hist[sym].append((now, price))
 
-                pct1 = self._pct_over_minutes(sym, 1)
                 pct10 = self._pct_over_minutes(sym, 10)
                 pct15 = self._pct_over_minutes(sym, 15)
                 pct60 = self._pct_over_minutes(sym, 60)
 
                 reason = None
-                # 테스트용 1분 체크를 최우선으로
-                if 'TH_1M_PCT_TEST' in globals() and pct1 is not None and abs(pct1) >= TH_1M_PCT_TEST:
-                    reason = f"1분 테스트(≥{TH_1M_PCT_TEST:.2f}%)"
-                elif pct10 is not None and abs(pct10) >= ACCEL_10M_PCT:
+                if pct10 is not None and abs(pct10) >= ACCEL_10M_PCT:
                     reason = f"10분 급가속(≥ {ACCEL_10M_PCT:.2f}%)"
                 elif pct15 is not None and abs(pct15) >= TH_15M_PCT:
                     reason = f"15분 급변(≥ {TH_15M_PCT:.2f}%)"
@@ -336,27 +327,48 @@ class MarketWatchdog:
 
                 # ✅ 우루루 방지: 서비스 전체 쿨타임
                 g_last_t = self.last_global_alert_time
-                g_last_p = self.last_global_alert_anchor  # 대표 기준 가격(예: BTC 가격)
-
+                g_last_p = self.last_global_alert_anchor
                 g_cooldown_ok = (g_last_t is None) or ((now - g_last_t) >= timedelta(minutes=COOLDOWN_MIN))
 
                 g_bypass_ok = False
                 if not g_cooldown_ok and g_last_p:
-                    extra_move_global = ((price - g_last_p) / g_last_p) * 100.0
-                    if abs(extra_move_global) >= COOLDOWN_BYPASS_PCT:
-                        g_bypass_ok = True
+                    # 버그 수정: 글로벌 바이패스는 대표 심볼(BTC) 기준으로 계산
+                    btc_price = self._binance_price("BTCUSDT")
+                    if btc_price:
+                        extra_move_global = ((btc_price - g_last_p) / g_last_p) * 100.0
+                        if abs(extra_move_global) >= COOLDOWN_BYPASS_PCT:
+                            g_bypass_ok = True
 
                 if not (g_cooldown_ok or g_bypass_ok):
                     continue
-
-                
-                
-                
-                
                 
                 if cooldown_ok or bypass_ok:
                     extra_news = self._collect_news()
-                    llm_comment = self._maybe_llm(sym, price, pct15, pct60, pct10)
+                    
+                    # --- AI 프롬프트 생성 ---
+                    _p, p24h = self._binance_24h(sym)
+                    prompt_lines = [
+                        "아래 정보를 바탕으로 현재 시장 상황을 3~5줄로 간결하게 설명해줘. 너는 'The Whale Hunter'의 시장 관측 애널리스트이며, 투자 조언이 아니라 시장 상황에 대한 건조한 설명만 제공해야 해.",
+                        "---",
+                        f"- 심볼: {sym}",
+                        f"- 현재가: {price:,.4f}",
+                        f"- 알림 사유: {reason}"
+                    ]
+                    if p24h is not None:
+                        prompt_lines.append(f"- 24시간 변동: {p24h:+.2f}%")
+                    if pct10 is not None:
+                        prompt_lines.append(f"- 10분 변동: {pct10:+.2f}%")
+                    if pct15 is not None:
+                        prompt_lines.append(f"- 15분 변동: {pct15:+.2f}%")
+                    if pct60 is not None:
+                        prompt_lines.append(f"- 60분 변동: {pct60:+.2f}%")
+                    if extra_news:
+                        prompt_lines.append(f"- 관련 뉴스:\n{extra_news}")
+                    prompt_lines.append("---")
+                    
+                    llm_comment = self._maybe_llm("\n".join(prompt_lines))
+                    # --- AI 프롬프트 생성 끝 ---
+
                     alert_msg = self._format_alert(sym, price, pct15, pct60, pct10, reason, extra_news, llm_comment)
 
                     self.tg.send(alert_msg)
@@ -367,7 +379,7 @@ class MarketWatchdog:
 
                     # ✅ (추가) 서비스 전체 마지막 알림 기록 (우루루 방지)
                     self.last_global_alert_time = now
-                    self.last_global_alert_anchor = price
+                    self.last_global_alert_anchor = self._binance_price("BTCUSDT") or price # 기준은 BTC, 실패 시 현재가
 
 
             print(f"\r👀 Moneybag 감시 중... ({self._now().strftime('%H:%M:%S')})", end="", flush=True)

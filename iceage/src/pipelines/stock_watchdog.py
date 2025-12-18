@@ -34,11 +34,6 @@ SIGNALIST_ALERT_LEVELS = [1, 2, 3, 5]
 # 10분 급가속 기준
 ACCEL_10M_PCT = 1.0
 
-# --- 테스트용 임시 기준 ---
-# 1분간 0.01% 변동 시 알림 (테스트 후 이 두 줄은 삭제하세요)
-TH_1M_PCT_TEST = 0.01
-# --------------------------
-
 # 기본 쿨타임(분) - 단, “새 레벨 돌파”는 쿨타임 무시
 COOLDOWN_MIN = 20
 
@@ -187,6 +182,7 @@ class SignalistWatchdog:
 
         self._open_brief_date = None
         self._close_brief_date = None
+        self._test_alert_sent = False # ✅ 테스트 알림 1회 발송용 플래그
 
         self._stop = False
         signal.signal(signal.SIGTERM, self._on_stop)
@@ -370,6 +366,13 @@ class SignalistWatchdog:
                 price = self._get_price(ticker)
                 if price is None:
                     continue
+                
+                # --- 테스트 로직: 시작 후 첫 가격 조회 성공 시 1회 알림 ---
+                # TODO: 테스트 완료 후 이 블록을 삭제하세요.
+                if not self._test_alert_sent:
+                    self.tg.send(f"🧪 [Signalist Test] '{name}' 감시 시작. 현재 지수: {price:,.2f}")
+                    self._test_alert_sent = True # 모든 티커 중 하나에 대해서만 1회 실행
+                # --- 테스트 로직 끝 ---
 
                 self.hist[ticker].append((now, price))
                 self._ensure_daily_state(ticker, price)
@@ -377,16 +380,6 @@ class SignalistWatchdog:
                 base = self.baseline[ticker][1]
                 pct_base = ((price - base) / base) * 100.0
                 
-                # --- 테스트 로직 ---
-                if 'TH_1M_PCT_TEST' in globals():
-                    pct1 = self._pct_over_minutes(ticker, 1)
-                    if pct1 is not None and abs(pct1) >= TH_1M_PCT_TEST:
-                        test_msg = f"🧪 [Signalist Test] {name} {pct1:+.2f}% (1m)"
-                        self.tg.send(test_msg)
-                        time.sleep(POLL_INTERVAL_SEC) # 연속 전송 방지
-                        continue # 원래 알림 로직은 건너뜀
-                # --- 테스트 로직 끝 ---
-
                 pct10 = self._pct_over_minutes(ticker, 10)
                 crossed = self._level_crossed(base, price)
                 today, sent = self.sent_levels[ticker]
