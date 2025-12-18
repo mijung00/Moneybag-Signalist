@@ -137,6 +137,22 @@
                 }, 4000); // 4초 후에 사라짐
             }
         });
+
+        // [추가] 아카이브 페이지의 넓은 테이블에 스크롤 안내 문구 추가
+        document.addEventListener('DOMContentLoaded', function() {
+            const tables = document.querySelectorAll('main table');
+            tables.forEach(table => {
+                // 테이블이 부모 요소보다 넓어서 스크롤이 필요한 경우
+                if (table.offsetWidth > table.parentElement.offsetWidth) {
+                    const indicator = document.createElement('div');
+                    indicator.innerHTML = '↔️ <span class="hidden sm:inline">좌우로 스크롤하여 더 많은 정보를 확인하세요.</span>';
+                    indicator.className = 'text-xs text-gray-400 text-right mt-1 select-none';
+                    
+                    // 테이블 바로 다음에 안내 문구 삽입
+                    table.parentNode.insertBefore(indicator, table.nextSibling);
+                }
+            });
+        });
     </script>
 
 </body>

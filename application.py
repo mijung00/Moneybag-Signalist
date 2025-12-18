@@ -445,9 +445,13 @@ def sitemap_xml():
     all_urls = static_urls + dynamic_urls
     
     # 3. XML 템플릿 렌더링
-    xml_sitemap = render_template('sitemap.xml', urls=all_urls)
-    response = Response(xml_sitemap, mimetype='application/xml')
-    return response
+    try:
+        xml_sitemap = render_template('sitemap.xml', urls=all_urls)
+        response = Response(xml_sitemap, mimetype='application/xml')
+        return response
+    except Exception as e:
+        print(f"❌ [Sitemap Error] {e}")
+        return Response(f"Sitemap generation error: {e}", status=500, mimetype='text/plain')
 
 @application.route('/health')
 def health_check():
