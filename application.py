@@ -221,6 +221,9 @@ def index():
                     sql = "INSERT INTO subscribers (email, name, unsubscribe_token, is_signalist, is_moneybag) VALUES (%s, %s, %s, %s, %s)"
                     cursor.execute(sql, (email, name, token, sub_signalist, sub_moneybag))
                     flash(f"{name}님, 구독해주셔서 감사합니다! 🎉", "success")
+                
+                # [중요] 이메일 발송 전에 먼저 커밋해서 구독 정보 저장 확실히 하기
+                conn.commit()
 
                 # [수정] 신규/기존 상관없이 구독 신청한 서비스의 최신 리포트 발송
                 if sub_signalist:
@@ -234,7 +237,6 @@ def index():
                         Thread(target=send_report_email_async, args=('moneybag', latest_moneybag_date, email)).start()
                         flash("웨일헌터 최신 리포트를 메일로 보내드렸습니다.", "info")
 
-            conn.commit()
             conn.close()
         except Exception as e:
             print(f"[DB Error] {e}")
