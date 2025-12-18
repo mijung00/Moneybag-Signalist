@@ -203,15 +203,6 @@ def index():
         # [수정] 처리 후 돌아갈 페이지 주소 (기본값: 메인)
         redirect_url = request.referrer or url_for('index')
 
-        # 1. 유효성 검사 (공통)
-        if not email or not agree_terms:
-            flash("이메일 입력 및 약관 동의는 필수입니다.", "error")
-            if action == 'unlock':
-                # 원래 있던 아카이브 페이지로 돌려보냄
-                return redirect(url_for('archive_view', service_name=request.form.get('service_name'), date_str=request.form.get('date_str')))
-            return redirect(redirect_url)
-
-        conn = None
         # 2. 구독자 DB 처리
         try:
             conn = get_db_connection()
@@ -266,9 +257,10 @@ def index():
         except Exception as e:
             print(f"[DB Error] {e}")
             flash("일시적인 오류가 발생했습니다.", "error")
+            if conn: conn.close()
             return redirect(redirect_url)
         finally:
-            if conn: 
+            if conn and conn.open:
                 conn.close()
 
         # 3. 이메일 발송 처리 및 리다이렉트
