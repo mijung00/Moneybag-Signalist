@@ -1,3 +1,11 @@
+# ✨ Acknowledgements
+
+This project was brought to life with significant assistance from **Google's Gemini Code Assist**. 
+
+As a project owner with a clear vision but without a coding background, I directed the entire development process. The architectural design, implementation, debugging, and deployment of the code were all carried out by Gemini based on my conversational prompts and detailed requirements. This repository stands as a testament to the power of collaborative development between humans and AI.
+
+---
+
 # 💰 Moneybag & Signalist (Fincore Engine)
 
 **Moneybag & Signalist**는 한국 주식 시장(KRX)과 글로벌 암호화폐 시장을 실시간으로 분석하여, 투자 인사이트를 제공하는 **자동화된 퀀트/AI 분석 엔진**입니다.
