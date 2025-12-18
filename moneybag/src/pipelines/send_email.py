@@ -14,8 +14,6 @@ import re
 BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env")
 
-# 구독자 파일 및 출력 경로 설정
-SUBSCRIBERS_FILE = BASE_DIR / "subscribers_moneybag.csv"
 OUTPUT_DIR = BASE_DIR / "moneybag" / "data" / "out"
 
 class EmailSender:
@@ -30,7 +28,12 @@ class EmailSender:
 
     def _fetch_subscribers_from_db(self):
         """DB에서 구독자 이메일 리스트를 가져옵니다."""
-        import pymysql
+        try:
+            import pymysql
+        except ImportError:
+            print("⚠️ [EmailSender] pymysql 모듈이 설치되지 않았습니다.")
+            return []
+
         try:
             conn = pymysql.connect(
                 host=os.getenv("DB_HOST"), port=int(os.getenv("DB_PORT", 3306)),
@@ -41,8 +44,11 @@ class EmailSender:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT email FROM subscribers WHERE is_active=1")
                 result = cursor.fetchall()
-                return [row['email'] for row in result]
-        except Exception:
+                emails = [row['email'] for row in result]
+                print(f"✅ [DB Load] 구독자 {len(emails)}명 조회 성공")
+                return emails
+        except Exception as e:
+            print(f"⚠️ [DB Error] 구독자 조회 실패: {e}")
             # DB 연결 실패 시 테스트 수신자 반환
             test_recipient = os.getenv("TEST_RECIPIENT")
             return [test_recipient] if test_recipient else []
