@@ -82,8 +82,9 @@ if [ -z "${PY:-}" ]; then PY="$(command -v python3 || command -v python)"; fi
 echo "[$(date)] [Runner] ICEAGE start arg='$ARG'"
 echo "[$(date)] [Runner] using PY=$PY"
 
-if [ "$ARG" == "newsletter" ]; then
-  "$PY" iceage/src/pipelines/morning_newsletter.py
+if [ "$ARG" == "newsletter" ]; then # "newsletter"는 전체 일일 파이프라인을 실행하는 별칭입니다.
+  # morning_newsletter.py만 실행하는 대신, 전체 파이프라인을 관장하는 daily_runner.py를 실행합니다.
+  "$PY" -m iceage.src.pipelines.daily_runner
 elif [ -n "$ARG" ]; then
   "$PY" -m iceage.src.pipelines.daily_runner "$ARG"
 else
