@@ -68,7 +68,7 @@ ensure_secret_env () {
 }
 
 # iceage가 쓰는 것들(필요하면 늘려)
-for k in KRX_AUTH_KEY SERPAPI_KEY OPENAI_API_KEY SLACK_WEBHOOK_URL DB_PASSWORD SENDGRID_API_KEY NEWSLETTER_AUTO_SEND
+for k in KRX_AUTH_KEY SERPAPI_KEY OPENAI_API_KEY SLACK_WEBHOOK_URL DB_PASSWORD SENDGRID_API_KEY NEWSLETTER_AUTO_SEND KIS_APP_KEY KIS_APP_SECRET
 do
   ensure_secret_env "$k"
 done
@@ -82,7 +82,9 @@ if [ -z "${PY:-}" ]; then PY="$(command -v python3 || command -v python)"; fi
 echo "[$(date)] [Runner] ICEAGE start arg='$ARG'"
 echo "[$(date)] [Runner] using PY=$PY"
 
-if [ -n "$ARG" ]; then
+if [ "$ARG" == "newsletter" ]; then
+  "$PY" iceage/src/pipelines/morning_newsletter.py
+elif [ -n "$ARG" ]; then
   "$PY" -m iceage.src.pipelines.daily_runner "$ARG"
 else
   "$PY" -m iceage.src.pipelines.daily_runner
