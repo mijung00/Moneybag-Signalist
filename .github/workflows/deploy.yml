@@ -29,3 +29,5 @@ jobs:
         version_label: ${{ github.sha }}          # 버전 라벨 (커밋 해시값 사용)
         region: ap-northeast-2                    # 서울 리전
         deployment_package: deploy.zip
+        wait_for_deployment: true     # 배포가 끝날 때까지 기다림
+        recovery_wait_time: 300       # ⚠️ 30초에서 300초(5분)로 연장
