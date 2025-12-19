@@ -25,6 +25,44 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 from zoneinfo import ZoneInfo
 
+# ---------------------------------------------------------------------
+# ✅ SecretsManager를 JSON 형태로 저장했을 때도 동작하게(OPENAI_API_KEY 등)
+# ---------------------------------------------------------------------
+def _normalize_json_env(env_key: str) -> None:
+    raw = os.getenv(env_key, "")
+    if not raw:
+        return
+    s = raw.strip()
+
+    # JSON 형태 아니면 그대로 둠
+    if not (s.startswith("{") and s.endswith("}")):
+        return
+
+    try:
+        obj = json.loads(s)
+        if not isinstance(obj, dict):
+            return
+
+        # 1) env_key와 같은 키가 있으면 그 값을 사용
+        v = obj.get(env_key)
+
+        # 2) 없으면 value라는 관용 키를 사용
+        if not v:
+            v = obj.get("value")
+
+        # 3) 그것도 없으면 dict 안의 "첫번째 문자열 값"을 사용
+        if not v:
+            for vv in obj.values():
+                if isinstance(vv, str) and vv.strip():
+                    v = vv.strip()
+                    break
+
+        if isinstance(v, str) and v.strip():
+            os.environ[env_key] = v.strip()
+    except Exception:
+        pass
+_normalize_json_env("OPENAI_API_KEY")
+
 from iceage.src.llm.openai_driver import generate_newsletter_bundle
 from iceage.src.analyzers.signalist_history_analyzer import build_signalist_history_markdown
 
