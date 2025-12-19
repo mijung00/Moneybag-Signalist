@@ -257,7 +257,7 @@ class KisApiExtension:
     한국투자증권(KIS) API를 사용하여 해외 지수, 환율, 원자재 데이터를 수집하는 확장 클래스.
     모든 API 호출 시 상세 로깅을 통해 실패 원인을 추적합니다.
     """
-    def __init__(self, app_key, app_secret, s3_bucket="fincore-output-storage", s3_key_path="config/kis_overseas_token.json"):
+    def __init__(self, app_key, app_secret, s3_bucket="fincore-output-storage", s3_key_path="config/kis_token.json"):
         self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
         self.app_key = app_key
         self.app_secret = app_secret
@@ -360,7 +360,7 @@ class KisApiExtension:
         try:
             res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
             data = res.json()
-            if data.get("rt_cd") == "0":
+            if data.get("rt_cd") == "0" and 'output' in data:
                 output = data['output']
                 return float(output['ovrs_nmix_prpr']), float(output['prdy_ctrt'])
             else:
@@ -381,8 +381,8 @@ class KisApiExtension:
             
         url = f"{self.base_url}/uapi/overseas-future/v1/quotations/inquire-price"
         # CL000: WTI 선물 최근물(연속) 심볼
-        params = {"EXCD": "CMEC", "SYMB": "CL000"}
-
+        params = {"SYMB": "CL000"}
+ 
         try:
             res = requests.get(url, headers=self._get_headers("HHDFS76240000"), params=params)
             data = res.json()
