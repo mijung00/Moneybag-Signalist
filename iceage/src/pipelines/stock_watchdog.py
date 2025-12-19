@@ -116,101 +116,6 @@ except Exception as e:
     print(f"⚠️ [LLM Import] {e}", flush=True)
     _chat = None
 
-# ---------------------------------------------------------------------
-# ✅ 한국투자증권(KIS) API 클라이언트 (토큰 자동 갱신 포함)
-# ---------------------------------------------------------------------
-class KisClient:
-    def __init__(self):
-        self.app_key = os.getenv("KIS_APP_KEY")
-        self.app_secret = os.getenv("KIS_APP_SECRET")
-        self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
-        # S3 설정 (중앙 토큰 저장소)
-        self.bucket_name = "fincore-output-storage"
-        self.s3_key = "config/kis_token.json"
-        self.s3 = boto3.client("s3", region_name="ap-northeast-2")
-        
-        self.token = None
-        self.token_expired = None
-
-    def _get_access_token(self):
-        # 1. 메모리 캐시 확인 (가장 빠름)
-        if self.token and self.token_expired and datetime.now(TZ) < self.token_expired:
-            return self.token
-
-        # 2. S3 캐시 확인 (로컬/서버 공유)
-        try:
-            obj = self.s3.get_object(Bucket=self.bucket_name, Key=self.s3_key)
-            cache = json.loads(obj["Body"].read().decode("utf-8"))
-            # 만료 시간 체크 (Unix Timestamp 비교, 60초 여유)
-            if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
-                    self.token = cache["access_token"]
-                    self.token_expired = datetime.fromtimestamp(cache["expires_at"], TZ)
-                    return self.token
-        except ClientError:
-            pass # S3에 파일이 없으면 패스
-        except Exception as e:
-            print(f"⚠️ [KIS] S3 토큰 로드 실패: {e}", flush=True)
-
-        # 3. API 요청 (새로 발급)
-        url = f"{self.base_url}/oauth2/tokenP"
-        headers = {"content-type": "application/json"}
-        body = {
-            "grant_type": "client_credentials",
-            "appkey": self.app_key,
-            "appsecret": self.app_secret
-        }
-        try:
-            res = requests.post(url, json=body, timeout=10)
-            res.raise_for_status()
-            data = res.json()
-            self.token = data["access_token"]
-            # 만료 시간 설정 (기본 24시간이지만 안전하게 계산)
-            expires_in = int(data.get("expires_in", 86400))
-            self.token_expired = datetime.now(TZ) + timedelta(seconds=expires_in - 60)
-            
-            # 4. S3에 저장 (모두가 쓰도록)
-            try:
-                payload = {
-                    "access_token": self.token,
-                    "expires_at": self.token_expired.timestamp()
-                }
-                self.s3.put_object(Bucket=self.bucket_name, Key=self.s3_key, Body=json.dumps(payload), ContentType="application/json")
-                print("💾 [KIS] 토큰 S3 저장 완료", flush=True)
-            except Exception as e:
-                print(f"⚠️ [KIS] S3 토큰 저장 실패: {e}", flush=True)
-
-            print(f"🔑 [KIS] Access Token 발급 완료 (만료: {self.token_expired})", flush=True)
-            return self.token
-        except Exception as e:
-            print(f"❌ [KIS] 토큰 발급 실패: {e}", flush=True)
-            return None
-
-    def get_price(self, market_code: str) -> Optional[float]:
-        """업종(지수) 현재가 조회 (코스피: 0001, 코스닥: 1001)"""
-        token = self._get_access_token()
-        if not token: return None
-
-        url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
-        headers = {
-            "content-type": "application/json; charset=utf-8",
-            "authorization": f"Bearer {token}",
-            "appkey": self.app_key,
-            "appsecret": self.app_secret,
-            "tr_id": "FHKUP03500100",  # 업종 현재가 TR ID
-            "custtype": "P"
-        }
-        params = {"fid_cond_mrkt_div_code": "U", "fid_input_iscd": market_code}
-        
-        try:
-            res = requests.get(url, headers=headers, params=params, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                if data['rt_cd'] == '0':
-                    return float(data['output']['bstp_nmix_prpr'])
-        except Exception:
-            pass
-        return None
-
 
 @dataclass
 class TelegramClient:
@@ -240,8 +145,7 @@ class SignalistWatchdog:
         chat_id = os.getenv("TELEGRAM_CHAT_ID_SIGNALIST", "")
         self.tg = TelegramClient(token=token, chat_id=chat_id)
 
-        # KIS 클라이언트 초기화 (키가 없으면 None)
-        self.kis = KisClient() if os.getenv("KIS_APP_KEY") else None
+        # KIS 클라이언트 제거
 
         self.hist = {t: deque(maxlen=1200) for t in TICKERS}
         self.baseline = {}      # ticker -> (date, price)
@@ -262,17 +166,7 @@ class SignalistWatchdog:
         return datetime.now(TZ)
 
     def _get_price(self, ticker: str) -> Optional[float]:
-        # 1. 한국투자증권 API (가장 우선)
-        if self.kis:
-            kis_code = None
-            if ticker == "^KS11": kis_code = "0001"  # 코스피
-            elif ticker == "^KQ11": kis_code = "1001" # 코스닥
-            
-            if kis_code:
-                p = self.kis.get_price(kis_code)
-                if p is not None: return p
-
-        # 2. 네이버 금융 (백업 1)
+        # 1. 네이버 금융
         naver_symbol = None
         if ticker == "^KS11": naver_symbol = "KOSPI"
         elif ticker == "^KQ11": naver_symbol = "KOSDAQ"
@@ -286,7 +180,7 @@ class SignalistWatchdog:
             except Exception:
                 pass
 
-        # 3. yfinance (백업 2)
+        # 2. yfinance (백업)
         try:
             # fast_info is faster but can be stale
             return float(yf.Ticker(ticker).fast_info["last_price"])

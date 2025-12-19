@@ -7,7 +7,7 @@ import json
 import sys
 import re  # [필수] 정규식 모듈 유지
 import logging
-# 로깅이 stdout(로그 파일)으로 나오도록 강제 설정
+# 로깅이 stdout(로그 파일)으로 나오도록 강제 설정 (웹 Gemini 제안)
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -23,6 +23,7 @@ from textwrap import dedent
 import tempfile
 import boto3
 from botocore.exceptions import ClientError
+import yfinance as yf
 
 # 프로젝트 루트 설정
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -100,104 +101,6 @@ from common.s3_manager import S3Manager
 
 # LLM 캐시
 _LLM_BUNDLE_CACHE: dict[str, dict] = {}
-
-# ---------------------------------------------------------------------
-# ✅ 한국투자증권(KIS) API 클라이언트 (뉴스레터용)
-# ---------------------------------------------------------------------
-class KisClient:
-    def __init__(self):
-        self.app_key = os.getenv("KIS_APP_KEY")
-        self.app_secret = os.getenv("KIS_APP_SECRET")
-        self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
-        # S3 설정
-        self.bucket_name = "fincore-output-storage"
-        self.s3_key = "config/kis_token.json"
-        self.s3 = boto3.client("s3", region_name="ap-northeast-2")
-        self.token = None
-
-    def _get_access_token(self):
-        if self.token: return self.token
-
-        # 1. S3 캐시 확인
-        try:
-            obj = self.s3.get_object(Bucket=self.bucket_name, Key=self.s3_key)
-            cache = json.loads(obj["Body"].read().decode("utf-8"))
-            if cache.get("expires_at", 0) > datetime.now().timestamp() + 60:
-                    self.token = cache["access_token"]
-                    return self.token
-        except Exception as e:
-            logging.warning(f"[KIS Client] S3 토큰 캐시를 읽는 중 오류 발생: {e}")
-
-        url = f"{self.base_url}/oauth2/tokenP"
-        headers = {"content-type": "application/json"}
-        body = {
-            "grant_type": "client_credentials",
-            "appkey": self.app_key,
-            "appsecret": self.app_secret
-        }
-        try:
-            res = requests.post(url, json=body, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                self.token = data["access_token"]
-                
-                # 2. S3 저장 (내가 처음이면 저장)
-                try:
-                    expires_in = int(data.get("expires_in", 86400))
-                    payload = {
-                        "access_token": self.token,
-                        "expires_at": datetime.now().timestamp() + expires_in - 60
-                    }
-                    self.s3.put_object(Bucket=self.bucket_name, Key=self.s3_key, Body=json.dumps(payload), ContentType="application/json")
-                except Exception as e:
-                    logging.warning(f"[KIS Client] S3에 새 토큰을 저장하는 중 오류 발생: {e}")
-                
-                return self.token
-        except Exception as e:
-            logging.error(f"[KIS Client] API에서 새 토큰을 발급받는 중 오류 발생: {e}")
-        return None
-
-    def get_index_price(self, market_code: str, date_str: str) -> tuple[float, float] | None:
-        """[수정] 지정된 날짜의 국내 지수 종가와 등락률을 조회합니다."""
-        logging.info(f"[KIS Client] {date_str} 기준 지수 가격({market_code}) 조회 시도...")
-        token = self._get_access_token()
-        if not token: return None
-
-        url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
-        headers = {
-            "content-type": "application/json; charset=utf-8",
-            "authorization": f"Bearer {token}",
-            "appkey": self.app_key,
-            "appsecret": self.app_secret,
-            "tr_id": "FHKUP03530100",  # 국내업종기간별시세
-            "custtype": "P"
-        }
-        params = {
-            "fid_cond_mrkt_div_code": "U",
-            "fid_input_iscd": market_code,
-            "fid_input_date_1": date_str.replace("-", ""),
-            "fid_input_date_2": date_str.replace("-", ""),
-            "fid_period_div_code": "D",
-        }
-        res: Optional[requests.Response] = None
-        try:
-            res = requests.get(url, headers=headers, params=params, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get('rt_cd') == '0':
-                    output = data.get('output2')
-                    if output and len(output) > 0:
-                        day_data = output[0]
-                        return float(day_data['bstp_nmix_clpr']), float(day_data['prdy_ctrt'])
-                    else:
-                        logging.warning(f"[KIS Client] {date_str} 지수({market_code}) 데이터가 없습니다. 응답: {res.text[:200]}")
-                else:
-                    logging.warning(f"[KIS Client] API 오류 ({market_code}, {date_str}): {data.get('msg1')}")
-            else:
-                logging.warning(f"[KIS Client] HTTP 오류 ({market_code}, {date_str}): Status {res.status_code}, Body: {res.text[:200]}")
-        except Exception as e:
-            logging.error(f"[KIS Client] 지수 일별 가격({market_code}, {date_str}) 조회 중 오류 발생: {e}")
-        return None
 
 # ---------------------------------------------------------------------
 # ✅ 네이버 금융 클라이언트 (API 키 없이 무료 사용)
@@ -300,143 +203,49 @@ class NaverClient:
                 response_text = res.text[:500]
             logging.error(f"[Naver Client] 유가({symbol}) 조회 중 오류 발생: {e}. 응답: {response_text}")
         return None
-class KisApiExtension:
-    """
-    한국투자증권(KIS) API를 사용하여 해외 지수, 환율, 원자재 데이터를 수집하는 확장 클래스.
-    모든 API 호출 시 상세 로깅을 통해 실패 원인을 추적합니다.
-    """
-    def __init__(self, app_key, app_secret, s3_bucket="fincore-output-storage", s3_key_path="config/kis_token.json"):
-        self.app_key = app_key
-        self.app_secret = app_secret
-        self.s3_bucket = s3_bucket
-        self.s3_key_path = s3_key_path
-        self.s3_client = boto3.client('s3')
-        self.access_token = self._get_valid_token()
-        print(f"[KisApiExtension] 초기화 완료. 토큰 유효 여부: {self.access_token is not None}")
 
-    def _get_valid_token(self):
-        try:
-            response = self.s3_client.get_object(Bucket=self.s3_bucket, Key=self.s3_key_path)
-            token_data = json.loads(response['Body'].read().decode('utf-8'))
-            issued_at = datetime.strptime(token_data['issued_at'], '%Y-%m-%d %H:%M:%S')
-            if datetime.now() < issued_at + timedelta(hours=23):
-                return token_data['access_token']
-        except Exception as e:
-            print(f"[KisApiExtension] 토큰 캐시 읽기 실패 또는 없음: {e}")
-
-        url = f"{self.base_url}/oauth2/tokenP"
-        payload = {"grant_type": "client_credentials", "appkey": self.app_key, "appsecret": self.app_secret}
-        res = requests.post(url, json=payload)
-        if res.status_code == 200:
-            new_token = res.json()['access_token']
-            save_data = {
-                "access_token": new_token,
-                "issued_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            self.s3_client.put_object(Bucket=self.s3_bucket, Key=self.s3_key_path, Body=json.dumps(save_data))
-            print("[KisApiExtension] 새 토큰 발급 및 S3 저장 성공")
-            return new_token
-        else:
-            print(f"[KisApiExtension] 토큰 발급 치명적 실패: {res.text}")
-            return None
-
-    def _get_headers(self, tr_id):
-        return {
-            "Content-Type": "application/json",
-            "authorization": f"Bearer {self.access_token}",
-            "appkey": self.app_key,
-            "appsecret": self.app_secret,
-            "tr_id": tr_id,
-            "custtype": "P"
+# ---------------------------------------------------------------------
+# ✅ 야후 파이낸스 클라이언트 (최종 백업용)
+# ---------------------------------------------------------------------
+class YFinanceClient:
+    def __init__(self):
+        self.mapping = {
+            'KOSPI': '^KS11',
+            'KOSDAQ': '^KQ11',
+            'SPI@SPX': '^GSPC',
+            'NAS@IXIC': '^IXIC',
+            'DJI@DJI': '^DJI',
+            'FX_USDKRW': 'KRW=X',
+            'FX_USDX': 'DX-Y.NYB',
+            'OIL_CL': 'CL=F'
         }
 
-    def get_overseas_index(self, symbol: str) -> tuple[float, float] | None:
-        """
-        해외 지수 및 달러인덱스 조회
-        """
-        # KIS 공식 문서 기반 심볼/거래소 매핑 재검증
-        mapping = {
-            'SPI@SPX': ('AMS', '.SPX'),   # S&P 500 (AMS 또는 NYS)
-            'NAS@IXIC': ('NAS', '.IXIC'), # 나스닥 종합
-            'DJI@DJI': ('NYS', '.DJI'),   # 다우존스
-            'FX_USDX': ('NYS', '.DXY')    # 달러 인덱스
-        }
-        
-        if symbol not in mapping:
+    def get_price(self, symbol: str) -> tuple[float, float] | None:
+        """yfinance를 통해 가격과 등락률 조회"""
+        if symbol not in self.mapping:
             return None
         
-        excd, symb = mapping[symbol]
-        url = f"{self.base_url}/uapi/overseas-stock/v1/quotations/inquire-price"
-        params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
+        ticker_str = self.mapping[symbol]
+        try:
+            # fast_info가 더 빠르지만, 데이터가 없을 경우 history 사용
+            ticker = yf.Ticker(ticker_str)
+            info = ticker.fast_info
+            last_price = info.get('last_price')
+            prev_close = info.get('previous_close')
+
+            if last_price is None or prev_close is None:
+                hist = ticker.history(period="2d")
+                if len(hist) < 2: return None
+                last_price = hist['Close'].iloc[-1]
+                prev_close = hist['Close'].iloc[-2]
+
+            if last_price and prev_close:
+                change_pct = ((last_price - prev_close) / prev_close) * 100
+                return float(last_price), float(change_pct)
+
+        except Exception as e:
+            logging.warning(f"[YFinance Client] {symbol}({ticker_str}) 조회 실패: {e}")
         
-        print(f"[KisApiExtension] 지수 요청 시도: {symbol} ({symb})")
-        try:
-            res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
-            data = res.json()
-            
-            if data.get("rt_cd") == "0" and 'output' in data:
-                val = float(data['output']['ovrs_nmix_prpr'])
-                rate = float(data['output']['prdy_ctrt'])
-                print(f"[KisApiExtension] 지수 수집 성공: {symbol} -> {val}")
-                return val, rate
-            else:
-                # 상세 에러 로그 강제 출력
-                print(f"[KisApiExtension] 지수 조회 실패({symbol}): {data.get('msg1')}, 응답: {res.text}")
-        except Exception as e:
-            print(f"[KisApiExtension] 지수 호출 예외: {e}")
-        return None
-
-    def get_exchange_rate(self, symbol: str) -> tuple[float, float] | None:
-        """
-        원/달러 환율 전용 (지수 API와 동일 tr_id 사용 가능 확인)
-        """
-        if symbol == 'FX_USDX': return self.get_overseas_index('FX_USDX')
-        if symbol != 'FX_USDKRW': return None
-
-        # KIS에서 환율은 거래소 'FX', 심볼 'USDKRW'로 조회
-        url = f"{self.base_url}/uapi/overseas-stock/v1/quotations/inquire-price"
-        params = {"AUTH": "", "EXCD": "FX", "SYMB": "USDKRW"}
-        
-        print("[KisApiExtension] 환율 요청 시도: USDKRW")
-        try:
-            res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
-            data = res.json()
-            if data.get("rt_cd") == "0" and 'output' in data:
-                val = float(data['output']['ovrs_nmix_prpr'])
-                rate = float(data['output']['prdy_ctrt'])
-                print(f"[KisApiExtension] 환율 수집 성공: {val}")
-                return val, rate
-            else:
-                print(f"[KisApiExtension] 환율 조회 실패: {data.get('msg1')}, 응답: {res.text}")
-        except Exception as e:
-            print(f"[KisApiExtension] 환율 호출 예외: {e}")
-        return None
-
-    def get_commodity_price(self, symbol: str) -> tuple[float, float] | None:
-        """
-        WTI 유가 선물 조회
-        """
-        if symbol != 'OIL_CL': return None
-            
-        url = f"{self.base_url}/uapi/overseas-future/v1/quotations/inquire-price"
-        # CL000은 보통 '최근월물 연속'을 의미합니다.
-        params = {"SYMB": "CL000"}
-
-        print("[KisApiExtension] 원자재(WTI) 요청 시도: CL000")
-        try:
-            res = requests.get(url, headers=self._get_headers("HHDFS76240000"), params=params)
-            data = res.json()
-            
-            # 선물 API는 output1 사용 확인
-            if data.get("rt_cd") == "0" and 'output1' in data:
-                val = float(data['output1']['last'])
-                rate = float(data['output1']['rate'])
-                print(f"[KisApiExtension] 원자재 수집 성공: {val}")
-                return val, rate
-            else:
-                print(f"[KisApiExtension] 원자재 조회 실패: {data.get('msg1')}, 응답: {res.text}")
-        except Exception as e:
-            print(f"[KisApiExtension] 원자재 호출 예외: {e}")
         return None
 
 # 캐시 추가 (중복 호출 방지)
@@ -455,11 +264,8 @@ def get_market_overview_safe(ref_date: _date) -> dict:
     commodities = snap.setdefault("commodities", {})
 
     # --- [수정] 클라이언트 인스턴스 생성 ---
-    kis_ext = None
-    if os.getenv("KIS_APP_KEY"):
-        kis_ext = KisApiExtension(app_key=os.getenv("KIS_APP_KEY"), app_secret=os.getenv("KIS_APP_SECRET"))
-    
-    nc = NaverClient() # NaverClient는 최종 비상용으로 유지
+    nc = NaverClient()
+    yc = YFinanceClient() # YFinanceClient는 최후의 보루
     
     # 1. [수정] 로컬에 수집된 지수 파일에서 데이터 읽기 (가장 정확)
     # daily_runner가 수집한 kr_market_index.csv 파일을 사용하여 어제 종가 기준으로 조회
@@ -487,34 +293,28 @@ def get_market_overview_safe(ref_date: _date) -> dict:
     except Exception as e:
         logging.warning(f"[get_market_overview_safe] 로컬 지수 파일 처리 중 오류: {e}")
 
-    # 2. KIS API (로컬 파일 실패 시 백업) - [수정] 전일 종가 조회
-    if "KOSPI" not in indices and os.getenv("KIS_APP_KEY"):
-        kis = KisClient()
-        date_str = ref_date.isoformat()
-        if (k_data := kis.get_index_price("0001", date_str)): indices["KOSPI"] = k_data
-        if (k_data := kis.get_index_price("1001", date_str)): indices["KOSDAQ"] = k_data
-
-    # 3. [수정] KIS 확장 API로 해외 시세 조회 (1순위) / 실패 시 Naver로 대체 (2순위)
-    def fetch_with_fallback(kis_method, nc_method, *args):
-        if kis_ext and (data := kis_method(*args)):
+    # KIS API를 제거하고 Naver -> Yahoo 순서로 폴백
+    def fetch_with_fallback(nc_method, yc_method, *args):
+        if (data := nc_method(*args)):
             return data
-        return nc_method(*args)
+        # 네이버도 실패하면 야후 파이낸스 시도
+        return yc_method(*args)
 
     # 국내 지수 최종 백업
-    if "KOSPI" not in indices: indices["KOSPI"] = nc.get_index("KOSPI")
-    if "KOSDAQ" not in indices: indices["KOSDAQ"] = nc.get_index("KOSDAQ")
-
+    if "KOSPI" not in indices: indices["KOSPI"] = fetch_with_fallback(nc.get_index, yc.get_price, "KOSPI")
+    if "KOSDAQ" not in indices: indices["KOSDAQ"] = fetch_with_fallback(nc.get_index, yc.get_price, "KOSDAQ")
+    
     # 해외 지수
-    indices["S&P 500"] = fetch_with_fallback(kis_ext.get_overseas_index, nc.get_index, "SPI@SPX")
-    indices["NASDAQ"] = fetch_with_fallback(kis_ext.get_overseas_index, nc.get_index, "NAS@IXIC")
-    indices["Dow Jones"] = fetch_with_fallback(kis_ext.get_overseas_index, nc.get_index, "DJI@DJI")
+    indices["S&P 500"] = fetch_with_fallback(nc.get_index, yc.get_price, "SPI@SPX")
+    indices["NASDAQ"] = fetch_with_fallback(nc.get_index, yc.get_price, "NAS@IXIC")
+    indices["Dow Jones"] = fetch_with_fallback(nc.get_index, yc.get_price, "DJI@DJI")
 
     # 환율 및 달러인덱스
-    fx["USD/KRW"] = fetch_with_fallback(kis_ext.get_exchange_rate, nc.get_exchange, "FX_USDKRW")
-    fx["DXY"] = fetch_with_fallback(kis_ext.get_exchange_rate, nc.get_exchange, "FX_USDX")
+    fx["USD/KRW"] = fetch_with_fallback(nc.get_exchange, yc.get_price, "FX_USDKRW")
+    fx["DXY"] = fetch_with_fallback(nc.get_exchange, yc.get_price, "FX_USDX")
 
     # 원자재
-    commodities["WTI"] = fetch_with_fallback(kis_ext.get_commodity_price, nc.get_oil, "OIL_CL")
+    commodities["WTI"] = fetch_with_fallback(nc.get_oil, yc.get_price, "OIL_CL")
 
     # 데이터가 없는 항목은 제거
     snap["indices"] = {k: v for k, v in indices.items() if v}

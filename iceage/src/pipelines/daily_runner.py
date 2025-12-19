@@ -121,7 +121,12 @@ def main() -> None:
     # [젬공의 책략 2] 기준일 설정
     # ---------------------------------------------------------
     if len(sys.argv) >= 2:
-        ref = date.fromisoformat(sys.argv[1])  # YYYY-MM-DD (수동 지정)
+        arg1 = sys.argv[1]
+        # 'newsletter' 인자는 무시하고 기본 날짜 계산 로직을 따르도록 수정
+        if arg1 == 'newsletter':
+            ref = compute_reference_date(cal, now)
+        else:
+            ref = date.fromisoformat(arg1)  # YYYY-MM-DD (수동 지정)
     else:
         # 오늘 실행하면 "전 영업일"을 기준일로 사용
         ref = compute_reference_date(cal, now)
