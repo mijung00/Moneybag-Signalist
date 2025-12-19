@@ -233,10 +233,11 @@ class TelegramClient:
 
 class SignalistWatchdog:
     def __init__(self):
-        tok_raw = os.getenv("TELEGRAM_BOT_TOKEN_SIGNALIST", "")
-        chat_raw = os.getenv("TELEGRAM_CHAT_ID_SIGNALIST", "")
-        token = _extract_secret_value(tok_raw, "TELEGRAM_BOT_TOKEN_SIGNALIST")
-        chat_id = _extract_secret_value(chat_raw, "TELEGRAM_CHAT_ID_SIGNALIST")
+        # [수정] 환경 변수를 먼저 정규화하고 값을 가져옵니다.
+        _normalize_json_env("TELEGRAM_BOT_TOKEN_SIGNALIST")
+        _normalize_json_env("TELEGRAM_CHAT_ID_SIGNALIST")
+        token = os.getenv("TELEGRAM_BOT_TOKEN_SIGNALIST", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID_SIGNALIST", "")
         self.tg = TelegramClient(token=token, chat_id=chat_id)
 
         # KIS 클라이언트 초기화 (키가 없으면 None)
