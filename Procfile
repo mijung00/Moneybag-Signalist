@@ -1,2 +1,2 @@
-web: gunicorn application:application
+web: gunicorn app:application
 worker: ./run_watchdogs.sh

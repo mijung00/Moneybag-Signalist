@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from pathlib import Path
-import json
 from dotenv import load_dotenv
 
 # 모듈 임포트
