@@ -286,12 +286,15 @@ class KisApiExtension:
             if res.status_code == 200:
                 data = res.json()
                 new_token = data['access_token']
-                expires_in = int(data.get("expires_in", 86400))
-                save_data = {
-                    "access_token": new_token,
-                    "expires_at": datetime.now().timestamp() + expires_in - 60
-                }
-                self.s3_client.put_object(Bucket=self.s3_bucket, Key=self.s3_key_path, Body=json.dumps(save_data))
+                try:
+                    expires_in = int(data.get("expires_in", 86400))
+                    save_data = {
+                        "access_token": new_token,
+                        "expires_at": datetime.now().timestamp() + expires_in - 60
+                    }
+                    self.s3_client.put_object(Bucket=self.s3_bucket, Key=self.s3_key_path, Body=json.dumps(save_data))
+                except Exception as e:
+                    logging.warning(f"[KisApiExtension] S3에 새 토큰을 저장하는 중 오류 발생: {e}")
                 return new_token
         except Exception as e:
             logging.error(f"[KisApiExtension] 토큰 발급 실패: {e}")
