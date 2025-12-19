@@ -7,7 +7,12 @@ import json
 import sys
 import re  # [필수] 정규식 모듈 유지
 import logging
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+# 로깅이 stdout(로그 파일)으로 나오도록 강제 설정
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
 import pandas as pd
 from pathlib import Path
 import csv
@@ -295,153 +300,143 @@ class NaverClient:
                 response_text = res.text[:500]
             logging.error(f"[Naver Client] 유가({symbol}) 조회 중 오류 발생: {e}. 응답: {response_text}")
         return None
-
 class KisApiExtension:
     """
     한국투자증권(KIS) API를 사용하여 해외 지수, 환율, 원자재 데이터를 수집하는 확장 클래스.
     모든 API 호출 시 상세 로깅을 통해 실패 원인을 추적합니다.
     """
     def __init__(self, app_key, app_secret, s3_bucket="fincore-output-storage", s3_key_path="config/kis_token.json"):
-        self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
         self.app_key = app_key
         self.app_secret = app_secret
         self.s3_bucket = s3_bucket
         self.s3_key_path = s3_key_path
         self.s3_client = boto3.client('s3')
         self.access_token = self._get_valid_token()
+        print(f"[KisApiExtension] 초기화 완료. 토큰 유효 여부: {self.access_token is not None}")
 
     def _get_valid_token(self):
-        """S3에서 토큰을 확인하고, 없거나 만료된 경우 새로 발급받습니다."""
         try:
             response = self.s3_client.get_object(Bucket=self.s3_bucket, Key=self.s3_key_path)
             token_data = json.loads(response['Body'].read().decode('utf-8'))
-            if token_data.get("expires_at", 0) > datetime.now().timestamp() + 60:
+            issued_at = datetime.strptime(token_data['issued_at'], '%Y-%m-%d %H:%M:%S')
+            if datetime.now() < issued_at + timedelta(hours=23):
                 return token_data['access_token']
-        except Exception:
-            logging.info("[KisApiExtension] 유효한 캐시 토큰이 없어 새로 발급을 진행합니다.")
+        except Exception as e:
+            print(f"[KisApiExtension] 토큰 캐시 읽기 실패 또는 없음: {e}")
 
         url = f"{self.base_url}/oauth2/tokenP"
         payload = {"grant_type": "client_credentials", "appkey": self.app_key, "appsecret": self.app_secret}
-        try:
-            res = requests.post(url, json=payload, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                new_token = data['access_token']
-                try:
-                    expires_in = int(data.get("expires_in", 86400))
-                    save_data = {
-                        "access_token": new_token,
-                        "expires_at": datetime.now().timestamp() + expires_in - 60
-                    }
-                    self.s3_client.put_object(Bucket=self.s3_bucket, Key=self.s3_key_path, Body=json.dumps(save_data))
-                except Exception as e:
-                    logging.warning(f"[KisApiExtension] S3에 새 토큰을 저장하는 중 오류 발생: {e}")
-                return new_token
-        except Exception as e:
-            logging.error(f"[KisApiExtension] 토큰 발급 실패: {e}")
-        return None
+        res = requests.post(url, json=payload)
+        if res.status_code == 200:
+            new_token = res.json()['access_token']
+            save_data = {
+                "access_token": new_token,
+                "issued_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            self.s3_client.put_object(Bucket=self.s3_bucket, Key=self.s3_key_path, Body=json.dumps(save_data))
+            print("[KisApiExtension] 새 토큰 발급 및 S3 저장 성공")
+            return new_token
+        else:
+            print(f"[KisApiExtension] 토큰 발급 치명적 실패: {res.text}")
+            return None
 
     def _get_headers(self, tr_id):
         return {
-            "Content-Type": "application/json; charset=utf-8",
+            "Content-Type": "application/json",
             "authorization": f"Bearer {self.access_token}",
-            "appkey": self.app_key, "appsecret": self.app_secret,
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
             "tr_id": tr_id,
-            "custtype": "P" # 개인 고객 기준
+            "custtype": "P"
         }
 
     def get_overseas_index(self, symbol: str) -> tuple[float, float] | None:
         """
-        해외 지수(S&P 500, 나스닥, 다우존스, 달러인덱스) 조회
-        TR_ID: HHDFS00000300
+        해외 지수 및 달러인덱스 조회
         """
+        # KIS 공식 문서 기반 심볼/거래소 매핑 재검증
         mapping = {
-            'SPI@SPX': ('AMS', '.SPX'),  # S&P 500
+            'SPI@SPX': ('AMS', '.SPX'),   # S&P 500 (AMS 또는 NYS)
             'NAS@IXIC': ('NAS', '.IXIC'), # 나스닥 종합
             'DJI@DJI': ('NYS', '.DJI'),   # 다우존스
             'FX_USDX': ('NYS', '.DXY')    # 달러 인덱스
         }
         
         if symbol not in mapping:
-            logging.error(f"[KisApiExtension] 지원하지 않는 지수 심볼: {symbol}")
             return None
         
         excd, symb = mapping[symbol]
         url = f"{self.base_url}/uapi/overseas-stock/v1/quotations/inquire-price"
         params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
         
+        print(f"[KisApiExtension] 지수 요청 시도: {symbol} ({symb})")
         try:
             res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
             data = res.json()
             
             if data.get("rt_cd") == "0" and 'output' in data:
-                output = data['output']
-                # ovrs_nmix_prpr: 현재 지수, prdy_ctrt: 대비율
-                return float(output['ovrs_nmix_prpr']), float(output['prdy_ctrt'])
+                val = float(data['output']['ovrs_nmix_prpr'])
+                rate = float(data['output']['prdy_ctrt'])
+                print(f"[KisApiExtension] 지수 수집 성공: {symbol} -> {val}")
+                return val, rate
             else:
-                logging.warning(
-                    f"[KisApiExtension] 지수 조회 실패({symbol}): {data.get('msg1')}\n"
-                    f"파라미터: {params}, 응답전문: {res.text[:500]}"
-                )
+                # 상세 에러 로그 강제 출력
+                print(f"[KisApiExtension] 지수 조회 실패({symbol}): {data.get('msg1')}, 응답: {res.text}")
         except Exception as e:
-            logging.error(f"[KisApiExtension] 지수 호출 중 예외 발생: {str(e)}")
+            print(f"[KisApiExtension] 지수 호출 예외: {e}")
         return None
 
     def get_exchange_rate(self, symbol: str) -> tuple[float, float] | None:
         """
-        원/달러 환율 조회 및 달러인덱스(지수 API 활용)
+        원/달러 환율 전용 (지수 API와 동일 tr_id 사용 가능 확인)
         """
-        if symbol == 'FX_USDX':
-            return self.get_overseas_index('FX_USDX')
-        
-        if symbol != 'FX_USDKRW':
-            return None
+        if symbol == 'FX_USDX': return self.get_overseas_index('FX_USDX')
+        if symbol != 'FX_USDKRW': return None
 
+        # KIS에서 환율은 거래소 'FX', 심볼 'USDKRW'로 조회
         url = f"{self.base_url}/uapi/overseas-stock/v1/quotations/inquire-price"
-        # 환율 데이터의 경우 거래소를 FX로 지정하여 지수 API를 통해 조회하는 방식이 가장 안정적입니다.
         params = {"AUTH": "", "EXCD": "FX", "SYMB": "USDKRW"}
         
+        print("[KisApiExtension] 환율 요청 시도: USDKRW")
         try:
             res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
             data = res.json()
             if data.get("rt_cd") == "0" and 'output' in data:
-                output = data['output']
-                return float(output['ovrs_nmix_prpr']), float(output['prdy_ctrt'])
+                val = float(data['output']['ovrs_nmix_prpr'])
+                rate = float(data['output']['prdy_ctrt'])
+                print(f"[KisApiExtension] 환율 수집 성공: {val}")
+                return val, rate
             else:
-                logging.warning(
-                    f"[KisApiExtension] 환율 조회 실패: {data.get('msg1')}\n"
-                    f"응답전문: {res.text[:500]}"
-                )
+                print(f"[KisApiExtension] 환율 조회 실패: {data.get('msg1')}, 응답: {res.text}")
         except Exception as e:
-            logging.error(f"[KisApiExtension] 환율 호출 중 예외 발생: {str(e)}")
+            print(f"[KisApiExtension] 환율 호출 예외: {e}")
         return None
 
     def get_commodity_price(self, symbol: str) -> tuple[float, float] | None:
         """
-        WTI 유가 선물 조회 (TR_ID: HHDFS76240000)
+        WTI 유가 선물 조회
         """
-        if symbol != 'OIL_CL':
-            return None
+        if symbol != 'OIL_CL': return None
             
         url = f"{self.base_url}/uapi/overseas-future/v1/quotations/inquire-price"
-        # CL000: WTI 선물 최근물(연속) 심볼
+        # CL000은 보통 '최근월물 연속'을 의미합니다.
         params = {"SYMB": "CL000"}
- 
+
+        print("[KisApiExtension] 원자재(WTI) 요청 시도: CL000")
         try:
             res = requests.get(url, headers=self._get_headers("HHDFS76240000"), params=params)
             data = res.json()
             
-            # 해외선물의 경우 응답 구조가 'output1'임에 주의
+            # 선물 API는 output1 사용 확인
             if data.get("rt_cd") == "0" and 'output1' in data:
-                output = data['output1'] # 해외선물은 output1
-                return float(output['last']), float(output['rate'])
+                val = float(data['output1']['last'])
+                rate = float(data['output1']['rate'])
+                print(f"[KisApiExtension] 원자재 수집 성공: {val}")
+                return val, rate
             else:
-                logging.warning(
-                    f"[KisApiExtension] 원자재 조회 실패: {data.get('msg1')}\n"
-                    f"파라미터: {params}, 응답전문: {res.text[:500]}"
-                )
+                print(f"[KisApiExtension] 원자재 조회 실패: {data.get('msg1')}, 응답: {res.text}")
         except Exception as e:
-            logging.error(f"[KisApiExtension] 원자재 호출 중 예외 발생: {str(e)}")
+            print(f"[KisApiExtension] 원자재 호출 예외: {e}")
         return None
 
 # 캐시 추가 (중복 호출 방지)
