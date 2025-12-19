@@ -252,13 +252,10 @@ class NaverClient:
             logging.error(f"[Naver Client] 유가({symbol}) 조회 중 오류 발생: {e}. 응답: {response_text}")
         return None
 
-# ---------------------------------------------------------------------
-# ✅ [신규] KIS API 확장 클라이언트 (해외 시세용)
-# ---------------------------------------------------------------------
 class KisApiExtension:
     """
     한국투자증권(KIS) API를 사용하여 해외 지수, 환율, 원자재 데이터를 수집하는 확장 클래스.
-    기존 NaverClient의 크롤링 방식을 대체하여 높은 안정성을 제공합니다.
+    모든 API 호출 시 상세 로깅을 통해 실패 원인을 추적합니다.
     """
     def __init__(self, app_key, app_secret, s3_bucket="fincore-output-storage", s3_key_path="config/kis_overseas_token.json"):
         self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
@@ -305,66 +302,102 @@ class KisApiExtension:
             "Content-Type": "application/json; charset=utf-8",
             "authorization": f"Bearer {self.access_token}",
             "appkey": self.app_key, "appsecret": self.app_secret,
-            "tr_id": tr_id, "custtype": "P"
+            "tr_id": tr_id,
+            "custtype": "P" # 개인 고객 기준
         }
 
     def get_overseas_index(self, symbol: str) -> tuple[float, float] | None:
-        """해외 지수(S&P 500, 나스닥 등) 조회 (tr_id: HHDFS00000300)"""
-        mapping = {'SPI@SPX': ('NYS', 'SPX'), 'NAS@IXIC': ('NAS', 'IXIC'), 'DJI@DJI': ('NYS', 'DJI')}
-        if symbol not in mapping: return None
+        """
+        해외 지수(S&P 500, 나스닥, 다우존스, 달러인덱스) 조회
+        TR_ID: HHDFS00000300
+        """
+        mapping = {
+            'SPI@SPX': ('AMS', '.SPX'),  # S&P 500
+            'NAS@IXIC': ('NAS', '.IXIC'), # 나스닥 종합
+            'DJI@DJI': ('NYS', '.DJI'),   # 다우존스
+            'FX_USDX': ('NYS', '.DXY')    # 달러 인덱스
+        }
+        
+        if symbol not in mapping:
+            logging.error(f"[KisApiExtension] 지원하지 않는 지수 심볼: {symbol}")
+            return None
         
         excd, symb = mapping[symbol]
         url = f"{self.base_url}/uapi/overseas-stock/v1/quotations/inquire-price"
         params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
         
         try:
-            res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params, timeout=5)
+            res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
             data = res.json()
-            if data.get("rt_cd") == "0":
+            
+            if data.get("rt_cd") == "0" and 'output' in data:
                 output = data['output']
+                # ovrs_nmix_prpr: 현재 지수, prdy_ctrt: 대비율
                 return float(output['ovrs_nmix_prpr']), float(output['prdy_ctrt'])
             else:
-                logging.warning(f"[KisApiExtension] 지수 조회 실패({symbol}): {data.get('msg1')}")
+                logging.warning(
+                    f"[KisApiExtension] 지수 조회 실패({symbol}): {data.get('msg1')}\n"
+                    f"파라미터: {params}, 응답전문: {res.text[:500]}"
+                )
         except Exception as e:
-            logging.error(f"[KisApiExtension] API 호출 중 오류 발생({symbol}): {e}")
+            logging.error(f"[KisApiExtension] 지수 호출 중 예외 발생: {str(e)}")
         return None
 
     def get_exchange_rate(self, symbol: str) -> tuple[float, float] | None:
-        """환율 및 달러 인덱스 조회 (tr_id: HHDFS00000300)"""
-        mapping = {'FX_USDKRW': ('FX', 'USDKRW'), 'FX_USDX': ('NYS', '.DXY')}
-        if symbol not in mapping: return None
-            
-        excd, symb = mapping[symbol]
+        """
+        원/달러 환율 조회 및 달러인덱스(지수 API 활용)
+        """
+        if symbol == 'FX_USDX':
+            return self.get_overseas_index('FX_USDX')
+        
+        if symbol != 'FX_USDKRW':
+            return None
+
         url = f"{self.base_url}/uapi/overseas-stock/v1/quotations/inquire-price"
-        params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
+        # 환율 데이터의 경우 거래소를 FX로 지정하여 지수 API를 통해 조회하는 방식이 가장 안정적입니다.
+        params = {"AUTH": "", "EXCD": "FX", "SYMB": "USDKRW"}
+        
         try:
-            res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params, timeout=5)
+            res = requests.get(url, headers=self._get_headers("HHDFS00000300"), params=params)
             data = res.json()
             if data.get("rt_cd") == "0":
                 output = data['output']
                 return float(output['ovrs_nmix_prpr']), float(output['prdy_ctrt'])
             else:
-                logging.warning(f"[KisApiExtension] 환율 조회 실패({symbol}): {data.get('msg1')}")
+                logging.warning(
+                    f"[KisApiExtension] 환율 조회 실패: {data.get('msg1')}\n"
+                    f"응답전문: {res.text[:500]}"
+                )
         except Exception as e:
-            logging.error(f"[KisApiExtension] API 호출 중 오류 발생({symbol}): {e}")
+            logging.error(f"[KisApiExtension] 환율 호출 중 예외 발생: {str(e)}")
         return None
 
     def get_commodity_price(self, symbol: str) -> tuple[float, float] | None:
-        """WTI 유가 시세 조회 (tr_id: HHDFS76240000 - 해외선물 현재가)"""
-        if symbol != 'OIL_CL': return None
-        target_symbol = "CL000" # WTI 연속선물 심볼 (추정)
+        """
+        WTI 유가 선물 조회 (TR_ID: HHDFS76240000)
+        """
+        if symbol != 'OIL_CL':
+            return None
+            
         url = f"{self.base_url}/uapi/overseas-future/v1/quotations/inquire-price"
-        params = {"EXCD": "CMEC", "SYMB": target_symbol} # 거래소 코드(EXCD) 추가
+        # CL000: WTI 선물 최근물(연속) 심볼
+        params = {"EXCD": "CMEC", "SYMB": "CL000"}
+
         try:
-            res = requests.get(url, headers=self._get_headers("HHDFS76240000"), params=params, timeout=5)
+            res = requests.get(url, headers=self._get_headers("HHDFS76240000"), params=params)
             data = res.json()
-            if data.get("rt_cd") == "0":
+            
+            # 해외선물의 경우 응답 구조가 'output1'임에 주의
+            if data.get("rt_cd") == "0" and 'output1' in data:
                 output = data['output1'] # 해외선물은 output1
                 return float(output['last']), float(output['rate'])
             else:
-                logging.warning(f"[KisApiExtension] 원자재 조회 실패({symbol}): {data.get('msg1')}, 응답: {res.text[:200]}")
+                logging.warning(
+                    f"[KisApiExtension] 원자재 조회 실패: {data.get('msg1')}\n"
+                    f"파라미터: {params}, 응답전문: {res.text[:500]}"
+                )
         except Exception as e:
-            logging.error(f"[KisApiExtension] API 호출 중 오류 발생({symbol}): {e}")
+            logging.error(f"[KisApiExtension] 원자재 호출 중 예외 발생: {str(e)}")
         return None
 
 # 캐시 추가 (중복 호출 방지)
