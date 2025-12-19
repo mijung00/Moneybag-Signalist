@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+import json
 from dotenv import load_dotenv
 
 # 모듈 임포트
@@ -49,7 +50,13 @@ def _normalize_json_env(env_key: str) -> None:
 _normalize_json_env("OPENAI_API_KEY")
 from moneybag.src.analyzers.whale_alert_tracker import WhaleAlertTracker
 from moneybag.src.collectors.crypto_news_rss import CryptoNewsRSS
-from moneybag.src.llm.openai_driver import _chat 
+
+try:
+    from moneybag.src.llm.openai_driver import _chat
+except Exception as e:
+    print(f"⚠️ [LLM Import Error] OpenAI 기능이 비활성화될 수 있습니다: {e}")
+    _chat = None
+
 from moneybag.src.tools.simple_backtester import SimpleBacktester
 from moneybag.src.analyzers.technical_levels import TechnicalLevelsAnalyzer
 from moneybag.src.collectors.onchain_collector import OnChainCollector
@@ -320,7 +327,12 @@ class DailyNewsletter:
         user_prompt = f"[뉴스 데이터]\n{news_data}"
         
         print(f"🧠 AI가 시크릿 노트를 작성 중입니다...")
-        result_text = _chat(system_prompt, user_prompt)
+        
+        if not _chat:
+            print("❌ LLM 드라이버 로드 실패로 AI 노트 생성을 건너뜁니다.")
+            result_text = "# AI 생성 실패\n\nLLM 드라이버 로딩 중 오류가 발생하여 뉴스레터 본문을 생성하지 못했습니다."
+        else:
+            result_text = _chat(system_prompt, user_prompt)
         
         self.save_to_file(result_text, today_date, mode)
         return result_text

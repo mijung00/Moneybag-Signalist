@@ -63,7 +63,13 @@ def _normalize_json_env(env_key: str) -> None:
         pass
 _normalize_json_env("OPENAI_API_KEY")
 
-from iceage.src.llm.openai_driver import generate_newsletter_bundle
+try:
+    from iceage.src.llm.openai_driver import generate_newsletter_bundle
+except Exception as e:
+    logging.warning(f"[LLM Import Error] OpenAI 기능이 비활성화될 수 있습니다: {e}")
+    # AI 기능이 실패해도 프로그램이 멈추지 않도록 None으로 설정
+    generate_newsletter_bundle = None
+
 from iceage.src.analyzers.signalist_history_analyzer import build_signalist_history_markdown
 
 try:
@@ -630,13 +636,16 @@ def _ensure_llm_bundle(ref_date: str) -> dict:
     if ref_date in _LLM_BUNDLE_CACHE:
         return _LLM_BUNDLE_CACHE[ref_date]
 
-    payload = _build_llm_payload(ref_date)
-    try:
-        bundle = generate_newsletter_bundle(payload)
-    except Exception as e:
-        print("[WARN] LLM 번들 생성 실패:", repr(e))
-        bundle = {}
-
+    bundle = {}
+    # LLM 드라이버가 성공적으로 import되었는지 확인
+    if generate_newsletter_bundle:
+        payload = _build_llm_payload(ref_date)
+        try:
+            bundle = generate_newsletter_bundle(payload)
+        except Exception as e:
+            print("[WARN] LLM 번들 생성 실패:", repr(e))
+            bundle = {}
+    
     _LLM_BUNDLE_CACHE[ref_date] = bundle
     return bundle
 

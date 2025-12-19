@@ -41,7 +41,13 @@ def _normalize_json_env(env_key: str) -> None:
     except Exception:
         pass
 _normalize_json_env("OPENAI_API_KEY")
-from iceage.src.llm.openai_driver import generate_social_snippets_from_markdown
+
+try:
+    from iceage.src.llm.openai_driver import generate_social_snippets_from_markdown
+except Exception as e:
+    print(f"⚠️ [LLM Import Error] OpenAI 기능이 비활성화될 수 있습니다: {e}")
+    generate_social_snippets_from_markdown = None
+
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 OUT_DIR = BASE_DIR / "out"
@@ -100,6 +106,10 @@ def main(ref_date: str | None = None) -> None:
     newsletter_md = load_newsletter_markdown(ref_date)
 
     # 이제 유튜브 대본 없이 인스타 캡션만 받아옴
+    if not generate_social_snippets_from_markdown:
+        print("❌ LLM 드라이버 로드 실패로 SNS 콘텐츠 생성을 건너뜁니다.")
+        return
+
     snippets = generate_social_snippets_from_markdown(newsletter_md)
 
     ig_path = save_social_outputs(ref_date, snippets)
