@@ -24,7 +24,7 @@ OUT_SOCIAL_DIR = OUT_DIR / "social"
 def _get_newsletter_env_suffix() -> str:
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
     if env in ("", "prod"): return ""
-    return f"_{env}"
+    return f"-{env}"
 
 def load_html(ref_date: str) -> str:
     file_name = f"Signalist_Daily_{ref_date}{_get_newsletter_env_suffix()}.html"

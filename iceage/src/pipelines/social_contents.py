@@ -11,7 +11,7 @@ OUT_DIR = BASE_DIR / "out"
 
 def get_env_suffix() -> str:
     env = os.getenv("NEWSLETTER_ENV", "dev").lower()
-    return "" if env == "prod" else "_dev"
+    return "" if env == "prod" else "-dev"
 
 
 def load_newsletter_markdown(ref_date: str) -> str:

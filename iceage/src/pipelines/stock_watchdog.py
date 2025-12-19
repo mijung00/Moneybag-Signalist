@@ -212,39 +212,6 @@ class KisClient:
         return None
 
 
-def _extract_secret_value(raw: str, env_key: str) -> str:
-    if not raw:
-        return ""
-    s = raw.strip()
-    if s.startswith("{") and s.endswith("}"):
-        try:
-            obj = json.loads(s)
-            if isinstance(obj, dict):
-                if env_key in obj and isinstance(obj[env_key], str) and obj[env_key].strip():
-                    return obj[env_key].strip()
-                for v in obj.values():
-                    if isinstance(v, str) and v.strip():
-                        return v.strip()
-        except Exception:
-            return s
-    return s
-
-# ---------------------------------------------------------------------
-# ✅ JSON 시크릿도 정상 처리되도록: OPENAI_API_KEY 정규화 (중요!)
-# - Secrets Manager에서 {"OPENAI_API_KEY":"..."} 형태로 들어와도
-#   실제 키 문자열만 뽑아서 OPENAI_API_KEY에 다시 넣어준다.
-# - 반드시 openai_driver import(_chat) 보다 "먼저" 실행되어야 함
-# ---------------------------------------------------------------------
-_raw = os.getenv("OPENAI_API_KEY", "")
-if _raw:
-    os.environ["OPENAI_API_KEY"] = _extract_secret_value(_raw, "OPENAI_API_KEY")
-
-try:
-    from iceage.src.llm.openai_driver import _chat
-except Exception:
-    _chat = None
-
-
 @dataclass
 class TelegramClient:
     token: str
