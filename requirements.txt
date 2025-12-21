@@ -14,4 +14,3 @@ sendgrid
 itsdangerous
 markdown
 html2image
-zoneinfo
