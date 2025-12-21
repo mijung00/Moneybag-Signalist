@@ -1,36 +1,17 @@
-# [Core Data & Utils]
-pandas>=2.0.0
-numpy
-python-dotenv
-requests
-pytz
-tzdata>=2024.1
-lxml
-schedule
-boto3>=1.28.0
-
-# [Finance & Crypto]
-yfinance>=0.2.40
-ccxt>=4.0.0
-
-# [AI & LLM]
-openai>=1.0.0
-
-# [Media Generation]
-markdown
-Pillow>=10.2.0
-gTTS
-edge-tts
-imageio-ffmpeg
-
-# [Messaging & Alerts]
-sendgrid
-python-telegram-bot
-
-# [Web Server]
 Flask
-
-# [Database]
+gunicorn
+boto3
 pymysql
-cryptography
-
+pandas
+numpy
+requests
+beautifulsoup4
+lxml
+feedparser
+openai
+python-dotenv
+sendgrid
+itsdangerous
+markdown
+html2image
+zoneinfo

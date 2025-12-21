@@ -962,7 +962,9 @@ def section_footer() -> str:
     return ""
 
 def render_newsletter(ref_date: str) -> str:
-    topic, body = pick_topic_and_body(ref_date)
+    bundle = _ensure_llm_bundle(ref_date)
+    topic = bundle.get("mind_topic", "")  # AI가 생성한 투자자 마인드 토픽
+    body = bundle.get("mind_body", "")   # AI가 생성한 투자자 마인드 본문
     parts = [
         section_header_intro(ref_date),
         section_market_thermometer(ref_date),
