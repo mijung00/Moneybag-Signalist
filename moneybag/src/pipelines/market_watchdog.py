@@ -5,6 +5,7 @@ import time
 import json
 import signal
 from dataclasses import dataclass
+import re
 from datetime import datetime, timedelta
 from collections import deque
 from zoneinfo import ZoneInfo
@@ -232,22 +233,25 @@ class MarketWatchdog:
             return err_msg
 
     def _collect_news(self) -> str:
+        """[수정] 헤드라인 뿐만 아니라, 뉴스 요약(summary)을 함께 수집하여 AI에게 더 풍부한 재료를 제공합니다."""
         if not self.news:
-            return ""
+            return "뉴스 수집기가 없습니다."
         try:
-            items = self.news.fetch(limit=8)
-            lines = []
-            for it in items[:3]:
-                title = it.get("title") if isinstance(it, dict) else str(it)
-                link = it.get("link") if isinstance(it, dict) else ""
-                if link:
-                    lines.append(f"- {title}\n  {link}")
+            items = self.news.fetch(limit=5)
+            summaries = []
+            for item in items[:3]:
+                title = item.get("title", "제목 없음")
+                snippet = item.get("summary") or item.get("description", "")
+                if snippet:
+                    snippet = re.sub('<[^<]+?>', '', snippet).strip().replace('\n', ' ')
+                    snippet = snippet[:150] + "..." if len(snippet) > 150 else snippet
+                    summaries.append(f"- {title}\n  (요약: {snippet})")
                 else:
-                    lines.append(f"- {title}")
-            return "\n".join(lines)
+                    summaries.append(f"- {title}")
+            return "\n".join(summaries) if summaries else "최신 뉴스가 없습니다."
         except Exception as e:
             print(f"⚠️ [News] 실패: {e}", flush=True)
-            return ""
+            return "뉴스 수집에 실패했습니다."
 
     def _format_alert(self, symbol: str, price: float, pct15: Optional[float], pct60: Optional[float], pct10: Optional[float],
                       reason: str, extra_news: str = "", llm_comment: str = "") -> str:
@@ -284,8 +288,9 @@ class MarketWatchdog:
                 msg = self._format_brief()
                 if BRIEF_USE_LLM and _chat:
                     try:
+                        # [수정] AI 프롬프트 개선
                         system = "너는 'The Whale Hunter'의 시장 브리핑 작성자다. 투자 조언 금지. 요약만."
-                        user = "아래 코인 시장(24h 변동)을 한 문단으로 요약해줘:\n" + msg
+                        user = "아래 암호화폐 시장(24h 변동) 및 최신 뉴스 정보를 바탕으로, 현재 시장 상황을 한 문단으로 요약해줘.\n" + msg
                         msg += "\n\n🤖 AI 요약\n" + (_chat(system, user) or "")
                     except Exception:
                         pass
@@ -348,7 +353,8 @@ class MarketWatchdog:
                     # --- AI 프롬프트 생성 ---
                     _p, p24h = self._binance_24h(sym)
                     prompt_lines = [
-                        "아래 정보를 바탕으로 현재 시장 상황을 3~5줄로 간결하게 설명해줘. 너는 'The Whale Hunter'의 시장 관측 애널리스트이며, 투자 조언이 아니라 시장 상황에 대한 건조한 설명만 제공해야 해.",
+                        "아래 정보를 바탕으로 현재 암호화폐 시장 상황을 3~5줄로 간결하게 설명해줘. 너는 'The Whale Hunter'의 시장 관측 애널리스트이며, 투자 조언이 아니라 시장 상황에 대한 건조한 설명만 제공해야 해.",
+                        "뉴스 내용과 코인 가격 움직임을 연관지어 설명하면 좋아.",
                         "---",
                         f"- 심볼: {sym}",
                         f"- 현재가: {price:,.4f}",

@@ -228,34 +228,60 @@ class SignalistWatchdog:
         return crosses
 
     def _fetch_headlines(self, limit: int = 3) -> str:
+        """[수정] 헤드라인 뿐만 아니라, 기사 본문 일부를 함께 수집하여 AI에게 더 풍부한 재료를 제공합니다."""
+        news_summaries = []
         try:
-            url = "https://m.stock.naver.com/news/mainnews"
-            r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "html.parser")
-            items = soup.select("a.NewsList_item__lO7iA")[:limit]
-            lines = []
-            for it in items:
-                title = it.get_text(strip=True)
-                href = it.get("href", "")
-                if href and href.startswith("/"):
-                    href = "https://m.stock.naver.com" + href
-                if href:
-                    lines.append(f"- {title}\n  {href}")
-                else:
-                    lines.append(f"- {title}")
-            return "\n".join(lines)
-        except Exception:
-            return ""
+            # 1. 뉴스 목록 페이지 가져오기
+            list_url = "https://m.stock.naver.com/news/mainnews"
+            r_list = requests.get(list_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            r_list.raise_for_status()
+            soup_list = BeautifulSoup(r_list.text, "html.parser")
+            items = soup_list.select("a.NewsList_item__lO7iA")[:limit]
+
+            if not items:
+                return "주요 뉴스를 찾을 수 없습니다."
+
+            # 2. 각 기사 페이지를 방문하여 본문 일부(snippet) 추출
+            for item in items:
+                title = item.get_text(strip=True)
+                href = item.get("href", "")
+                if not href:
+                    news_summaries.append(f"- {title}")
+                    continue
+                
+                article_url = href if href.startswith("http") else "https://m.stock.naver.com" + href
+                
+                try:
+                    r_article = requests.get(article_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+                    r_article.raise_for_status()
+                    soup_article = BeautifulSoup(r_article.text, "html.parser")
+                    
+                    content_div = soup_article.find("div", id="newsct_article")
+                    if content_div:
+                        # 첫 두 문단을 요약으로 사용하고 길이 제한
+                        snippet = " ".join(p.get_text(strip=True) for p in content_div.find_all("p")[:2])
+                        snippet = snippet[:150] + "..." if len(snippet) > 150 else snippet
+                        news_summaries.append(f"- {title}\n  (요약: {snippet})")
+                    else:
+                        news_summaries.append(f"- {title}") # 본문 못찾으면 제목만
+                except Exception:
+                    news_summaries.append(f"- {title}") # 개별 기사 실패 시 제목만
+
+            return "\n".join(news_summaries)
+        except Exception as e:
+            print(f"⚠️ 뉴스 목록 수집 실패: {e}")
+            return "주요 뉴스 수집에 실패했습니다."
 
     def _llm_comment(self, user_prompt: str) -> str:
-        if not BRIEF_USE_LLM or not _chat:
+        if not _chat:
             return ""
         try:
-            system = "너는 'Signalist'의 시장 관측 애널리스트다. 투자 조언 금지. 상황 설명만."
+            # [수정] 시스템 프롬프트를 더 구체적으로 변경
+            system = "너는 대한민국 주식 시장을 분석하는 'Signalist'의 수석 애널리스트다. 객관적인 데이터와 뉴스를 바탕으로 시장 상황을 설명하며, 절대로 투자 조언이나 개인적인 예측을 하지 않는다."
             return (_chat(system, user_prompt) or "").strip()
-        except Exception:
-            return ""
+        except Exception as e:
+            print(f"⚠️ [LLM Error] {e}")
+            return f"AI 코멘트 생성 실패: {e}"
 
     def _is_market_open_time(self, now: datetime) -> bool:
         """평일 08:30 ~ 16:30 사이인지 확인 (주말 제외)"""
@@ -270,6 +296,11 @@ class SignalistWatchdog:
     # ✅ 중요: 브리핑은 “시장 열려있나?”와 무관하게 시간만 맞으면 무조건 실행
     def _send_brief_if_due(self):
         now = self._now()
+        
+        # [수정] 주말(토,일)에는 브리핑을 보내지 않음
+        if now.weekday() >= 5:
+            return
+            
         hhmm = now.strftime("%H:%M")
         today = now.date()
 
@@ -297,19 +328,20 @@ class SignalistWatchdog:
         if headlines:
             lines += ["", "📰 주요 헤드라인", headlines]
 
-        # LLM 프롬프트를 상황에 맞게 생성
-        user_prompt = "\n".join(lines)
+        # [수정] AI 프롬프트를 더 구체적이고 똑똑하게 변경
+        prompt_header = "아래 정보를 바탕으로 시장 상황을 3~5줄로 요약해줘. 투자 조언은 절대 금지.\n\n"
+        user_prompt = prompt_header + "\n".join(lines)
+        
         if tag == "장 시작 브리핑":
-            user_prompt += "\n\n위 내용은 장 시작(09:05) 직후의 상황이다. '개장 전'이라는 표현 대신, '개장 초반' 또는 '장 시작 직후'라는 표현을 사용해서 3~5줄로 요약해줘."
+            user_prompt += "\n\n'개장 초반' 또는 '장 시작 직후'라는 표현을 사용하고, 간밤의 해외 증시 마감 상황과 연관지어 설명하면 좋아."
         else:
-            user_prompt += "\n\n3~5줄로 요약해줘."
+            user_prompt += "\n\n오늘 하루의 시장 흐름(예: 상승 출발 후 하락 마감)을 요약하고, 주요 뉴스가 어떤 영향을 미쳤는지 언급해줘."
 
         llm = self._llm_comment(user_prompt)
         if llm:
             lines += ["", "🤖 AI 요약", llm]
 
         return "\n".join(lines)
-
     def _format_level_alert(self, name: str, price: float, pct_base: float, sign: int, lv: int,
                            pct10: Optional[float], headlines: str, llm: str) -> str:
         now = self._now().strftime("%Y-%m-%d %H:%M:%S")
@@ -403,11 +435,32 @@ class SignalistWatchdog:
                 llm = ""
                 if _chat:
                     try:
-                        system = "너는 'Signalist'의 시장 관측 애널리스트다. 투자 조언 금지."
-                        user = f"{name} 지수: 기준 대비 {pct_base:+.2f}%, 10분 변화={pct10}. 3~5줄 설명."
-                        llm = (_chat(system, user) or "").strip()
-                    except Exception:
-                        llm = ""
+                        # [수정] AI 프롬프트를 훨씬 더 구체적으로 개선
+                        reason_text = ""
+                        if new_levels:
+                            sign, lv = sorted(new_levels, key=lambda x: x[1], reverse=True)[0]
+                            direction = "상승" if sign > 0 else "하락"
+                            reason_text = f"새로운 레벨({direction} {lv}%) 돌파"
+                        elif accel_only:
+                            reason_text = "10분 급가속"
+
+                        user_prompt = f"""
+아래 정보를 바탕으로 한국 증시 상황을 3~5줄로 간결하게 설명해줘. 투자 조언이 아니라 객관적인 상황 설명만 제공해야 해.
+뉴스 내용과 지수 움직임을 연관지어 설명하면 좋아.
+
+---
+- 지수: {name}
+- 현재가: {price:,.2f}
+- 기준가 대비: {pct_base:+.2f}%
+- 10분 변동: {pct10:+.2f}%
+- 알림 사유: {reason_text}
+- 주요 뉴스:
+{headlines}
+---
+""".strip()
+                        llm = self._llm_comment(user_prompt)
+                    except Exception as e:
+                        llm = f"AI 코멘트 생성 실패: {e}"
 
                 # 레벨 알림이 있으면: “가장 큰 새 레벨 1개”만 보내고 나머지는 sent 처리
                 if new_levels:
