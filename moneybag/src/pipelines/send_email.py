@@ -6,8 +6,9 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 from sendgrid import SendGridAPIClient
-# 👇 [수정] Personalization 모듈 추가
-from sendgrid.helpers.mail import Mail, To, Personalization
+# 👇 [수정] Personalization 및 Substitution 모듈 추가
+from sendgrid.helpers.mail import Mail, To, Personalization, Substitution
+from itsdangerous import URLSafeTimedSerializer
 import re
 
 # 프로젝트 루트 경로
@@ -22,6 +23,10 @@ class EmailSender:
         sender_name = os.getenv("MONEYBAG_SENDER_NAME", "The Whale Hunter")
         sender_addr = os.getenv("MONEYBAG_SENDER_ADDRESS", "admin@fincore.co.kr")
         self.from_email = f"{sender_name} <{sender_addr}>"
+        
+        # [추가] 구독 취소 토큰 생성을 위한 Serializer (SECRET_KEY는 application.py와 동일해야 함)
+        secret_key = os.getenv('SECRET_KEY', 'a-very-secret-key-that-is-secure')
+        self.serializer = URLSafeTimedSerializer(secret_key)
         
         # 실제 구독자 리스트 가져오기
         self.to_emails = self._fetch_subscribers_from_db() 
@@ -38,13 +43,13 @@ class EmailSender:
             conn = pymysql.connect(
                 host=os.getenv("DB_HOST"), port=int(os.getenv("DB_PORT", 3306)),
                 user=os.getenv("DB_USER"), password=os.getenv("DB_PASSWORD"),
-                db=os.getenv("DB_NAME"), charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
+                db=os.getenv("DB_NAME"), charset='utf8mb4', cursorclass=pymysql.cursors.SSDictCursor
             )
             with conn.cursor() as cursor:
-                cursor.execute("SELECT email FROM subscribers WHERE is_active=1")
-                result = cursor.fetchall()
-                emails = [row['email'] for row in result]
+                # [버그 수정] moneybag 구독자만 조회하도록 변경
+                # [성능 개선] SSDictCursor와 함께 사용하여, 모든 결과를 메모리에 올리지 않고 스트리밍
+                cursor.execute("SELECT email FROM subscribers WHERE is_active=1 AND is_moneybag=1")
+                emails = [row['email'] for row in cursor]
                 print(f"✅ [DB Load] 구독자 {len(emails)}명 조회 성공")
                 return emails
         except Exception as e:
@@ -126,9 +131,11 @@ class EmailSender:
         <body>
             <div class="container">
                 {body_content}
-                <div class="footer">
-                    <p>🐋 <b>웨일 헌터의 시크릿 노트</b> | Moneybag Project</p>
-                    <p>본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.</p>
+                <div class="footer" style="text-align: center; font-size: 12px; color: #888888; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eeeeee;">
+                    본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
+                    더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-" style="color: #555555; text-decoration: underline;">여기</a>를 눌러 구독을 취소해주세요.<br><br>
+                    (주)비제이유앤아이 | <a href="https://www.fincore.trade/privacy" style="color: #555555;">개인정보 처리방침</a><br>
+                    <p style="margin-top: 10px;">본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.</p>
                 </div>
             </div>
         </body>
@@ -170,22 +177,27 @@ class EmailSender:
             for email in batch_emails:
                 p = Personalization()
                 p.add_to(To(email))
+
+                # [추가] 각 이메일별 개인화된 구독 취소 링크 생성
+                try:
+                    unsubscribe_token = self.serializer.dumps(email, salt='email-unsubscribe')
+                    unsubscribe_url = f"https://www.fincore.trade/unsubscribe/moneybag/{unsubscribe_token}"
+                    
+                    # [추가] SendGrid Substitution 기능으로 동적 값 주입
+                    p.add_substitution(Substitution("-email-", email))
+                    p.add_substitution(Substitution("-unsubscribe_url-", unsubscribe_url))
+                except Exception as e:
+                    print(f"⚠️ 토큰 생성 실패: {email}, {e}")
                 message.add_personalization(p)
             try:
-                sg.send(message)
-                print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공")
+                response = sg.send(message)
+                print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공 (Status: {response.status_code})")
+                if response.status_code >= 400:
+                    print(f"   -> SendGrid Body: {response.body}")
             except Exception as e:
                 print(f"❌ [Batch {i+1}] 발송 실패: {e}")
 
     def send(self, file_path, mode="morning"):
-        if not self.api_key: 
-            print("❌ SendGrid API Key가 없습니다.")
-            return
-
-        if not self.to_emails:
-            print("❌ 수신자가 없어 메일을 보내지 않습니다.")
-            return
-
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
@@ -194,104 +206,62 @@ class EmailSender:
             headline = lines[0].strip().replace("# ", "").replace("🐋 ", "").replace("💰 ", "")
         
         md_text = "".join(lines)
-        html_content = self._wrap_body_in_template(self._render_markdown(md_text)) # [수정] 마크다운 렌더링 후 템플릿 적용
+        html_content = self._wrap_body_in_template(self._render_markdown(md_text))
         
         today_str = datetime.now().strftime("%Y-%m-%d")
         self.save_html(html_content, today_str, mode)
         subject = f"[Secret Note] 🐋 {headline}"
 
-        # ---------------------------------------------------------
-        # [핵심 수정] SendGrid Personalization (Batch Sending)
-        # ---------------------------------------------------------
-        sg = SendGridAPIClient(self.api_key)
-        
-        # SendGrid API 한계 고려 (1000명 단위)
-        batch_size = 1000
-        total_batches = math.ceil(len(self.to_emails) / batch_size)
-
-        print(f"📧 총 {len(self.to_emails)}명에게 발송 (API Personalization 적용)")
-
-        for i in range(total_batches):
-            batch_emails = self.to_emails[i * batch_size : (i + 1) * batch_size]
-            
-            # 1. 메일 기본 틀 생성 (수신자 지정 없이)
-            message = Mail(
-                from_email=self.from_email,
-                subject=subject,
-                html_content=html_content
-            )
-
-            # 2. Personalization 객체 생성해서 하나씩 추가
-            # 이렇게 하면 수신자는 본인 이메일만 'To'에 보임
-            for email in batch_emails:
-                p = Personalization()
-                p.add_to(To(email))
-                message.add_personalization(p)
-
-            # 3. 발송
-            try:
-                sg.send(message)
-                print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공")
-            except Exception as e:
-                print(f"❌ [Batch {i+1}] 발송 실패: {e}")
+        # [리팩토링] 복잡한 발송 로직을 send_html_content 메서드로 위임하여 코드 중복 제거
+        self.send_html_content(html_content, subject)
 
 if __name__ == "__main__":
-    # [수정] CLI 실행 시 단건 발송 로직 구현
     import sys
-    from common.s3_manager import S3Manager
-    
-    # 1. 인자 파싱
-    ref_date = None
+
+    # 1. 인자 파싱 (파일 경로, 테스트 이메일)
+    file_to_send_path_str = None
+    cli_recipient_email = None
+
     if len(sys.argv) > 1:
-        ref_date = sys.argv[1]
+        if "@" in sys.argv[1] and "." in sys.argv[1]:
+            cli_recipient_email = sys.argv[1]
+        else:
+            file_to_send_path_str = sys.argv[1]
+            if len(sys.argv) > 2:
+                cli_recipient_email = sys.argv[2]
+
+    # 2. 발송할 파일 결정
+    file_to_send = None
+    if file_to_send_path_str:
+        file_to_send = Path(file_to_send_path_str)
     else:
-        ref_date = datetime.now().strftime("%Y-%m-%d")
+        out_dir = BASE_DIR / "moneybag" / "data" / "out"
+        files = sorted(out_dir.glob("SecretNote_*.md"), key=os.path.getmtime, reverse=True)
+        if files:
+            file_to_send = files[0]
+            print(f"▶️ 최신 파일 자동 선택: {file_to_send.name}")
 
-    # 2. 환경변수에서 수신자 확인 (application.py가 설정함)
-    recipient = os.getenv("TEST_RECIPIENT")
-    
-    print(f"📧 [Moneybag Email] 수동 발송 시작: {ref_date} -> {recipient}")
+    if not file_to_send or not file_to_send.exists():
+        print(f"❌ 발송할 마크다운 파일을 찾을 수 없습니다. ({file_to_send})")
+        sys.exit(1)
 
-    if not recipient:
-        print("❌ 수신자(TEST_RECIPIENT)가 지정되지 않았습니다.")
+    # 3. 발송 실행
+    sender = EmailSender()
+    is_auto_send = os.getenv("NEWSLETTER_AUTO_SEND", "0") == "1"
+
+    if cli_recipient_email:
+        print(f"📧 [CLI Test Mode] 테스트 발송 시작 -> {cli_recipient_email}")
+        sender.to_emails = [cli_recipient_email]
+    elif is_auto_send:
+        print(f"✅ [Production Mode] DB에 등록된 구독자 {len(sender.to_emails)}명에게 발송합니다.")
+    else:
+        print("⚠️ [Safe Mode] 실제 발송이 비활성화되었습니다. (NEWSLETTER_AUTO_SEND=1 설정 필요)")
+        print(f"-> 테스트 발송을 원하시면 이메일 주소를 인자로 전달하세요.")
         sys.exit(0)
 
-    sender = EmailSender()
-    sender.to_emails = [recipient]
-
-    # 3. S3에서 HTML 콘텐츠 가져오기
-    s3 = S3Manager(bucket_name="fincore-output-storage")
-    
-    morning_key = f"moneybag/data/out/Moneybag_Letter_Morning_{ref_date}.html"
-    night_key = f"moneybag/data/out/Moneybag_Letter_Night_{ref_date}.html"
-    
-    morning_html_raw = s3.get_text_content(morning_key)
-    night_html_raw = s3.get_text_content(night_key)
-
-    parts = []
-    if morning_html_raw:
-        body_match = re.search(r'<body[^>]*>(.*?)</body>', morning_html_raw, re.DOTALL | re.IGNORECASE)
-        parts.append(body_match.group(1) if body_match else morning_html_raw)
-
-    if night_html_raw:
-        if morning_html_raw:
-            parts.append('<div style="margin: 80px 0; border-top: 2px dashed #e5e7eb;"></div><h2>🌙 Night Report</h2>')
-        body_match = re.search(r'<body[^>]*>(.*?)</body>', night_html_raw, re.DOTALL | re.IGNORECASE)
-        parts.append(body_match.group(1) if body_match else night_html_raw)
-    
-    if parts:
-        # [수정] HTML 조각들을 합친 후, 이메일 템플릿으로 감싸기 (본문만)
-        full_body_html = "".join(parts)
-        final_email_html = sender._wrap_body_in_template(full_body_html)
+    # 파일명에서 모드(morning/night) 추출
+    mode = "morning"
+    if "night" in file_to_send.name.lower():
+        mode = "night"
         
-        # [수정] 제목 추출 (Morning 또는 Night 리포트에서)
-        headline = ""
-        if morning_html_raw:
-            headline = sender._extract_headline_from_html(morning_html_raw)
-        elif night_html_raw:
-            headline = sender._extract_headline_from_html(night_html_raw)
-        
-        subject = f"[The Whale Hunter] {ref_date} | {headline}" if headline != "새로운 리포트" else f"[The Whale Hunter] {ref_date} 리포트가 도착했습니다."
-        sender.send_html_content(final_email_html, subject)
-    else:
-        print(f"⚠️ 해당 날짜({ref_date})의 리포트 파일이 S3에 없습니다.")
+    sender.send(str(file_to_send), mode=mode)

@@ -40,10 +40,16 @@ def render_markdown_to_html(ref_date: str) -> Path:
     if not md_path.exists():
         raise FileNotFoundError(f"Markdown 파일을 찾을 수 없습니다: {md_path}")
 
-    # [수정] 변수명 변경 (md-text -> md_text)
     md_text = md_path.read_text(encoding="utf-8")
 
-    # 표 / 리스트 / 코드블럭 등을 잘 렌더하기 위해 확장 사용
+    # [추가] 마크다운 첫 줄에서 제목 추출
+    first_line = md_text.split('\n', 1)[0]
+    headline = f"Signalist Daily — {ref_date}" # 기본값
+    if first_line.startswith("# "):
+        # '# ' 제거하고 공백 정리
+        headline = first_line.replace("# ", "").strip()
+
+    # 표 / 리스트 / 코드블럭 등을 잘 렌더링하기 위해 확장 사용
     body_html = markdown.markdown(
         md_text,
         extensions=[
@@ -59,7 +65,7 @@ def render_markdown_to_html(ref_date: str) -> Path:
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <title>Signalist Daily — {ref_date}</title>
+    <title>{headline}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       /* 전체 레이아웃 */
@@ -202,12 +208,16 @@ def render_markdown_to_html(ref_date: str) -> Path:
       <div class="card">
         {body_html}
       </div>
-      <div class="footer">
-        Signalist · 자동 생성 모닝 뉴스레터
+      <div style="text-align: center; font-size: 12px; color: #888888; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eeeeee;">
+        본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
+        더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-" style="color: #555555; text-decoration: underline;">여기</a>를 눌러 구독을 취소해주세요.<br><br>
+        (주)비제이유앤아이 | <a href="https://www.fincore.trade/privacy" style="color: #555555;">개인정보 처리방침</a>
       </div>
     </div>
   </body>
 </html>
+
+
 """
 
     html_path = OUT_DIR / f"Signalist_Daily_{ref_date}{suffix}.html"

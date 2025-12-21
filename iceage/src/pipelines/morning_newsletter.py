@@ -470,7 +470,7 @@ def section_header_intro(ref_date: str) -> str:
         elif "BTC" in key and "BTC/USD" in crypto: val, pct = crypto["BTC/USD"]
         else: return ""
         
-        icon = "🔺" if pct > 0 else ("🔹" if pct < 0 else "-")
+        icon = "🔺" if pct > 0 else ("🔹" if pct < 0 else "➖")
         lbl = label if label else key
         return f"{lbl} {val:,.2f} ({icon} {pct:+.2f}%)"
 
@@ -489,11 +489,15 @@ def section_header_intro(ref_date: str) -> str:
         r = _fmt(k, l)
         if r: line_macro.append(r)
 
-    lines = [f"# {title}", ""]
-    if kicker:
-        lines.append(f"_{kicker}_")
-        lines.append("")
+    # [수정] 이메일 제목에 핵심 내용(kicker)이 들어가도록 h1, h2 순서 변경
+    main_title = kicker if kicker else title
+    sub_title = title if kicker and title != main_title else ""
     
+    lines = [f"# {main_title}", ""]
+    if sub_title:
+        lines.append(f"_{sub_title}_") # 부제는 이탤릭체로
+        lines.append("")
+
     lines.append("## 오늘의 시장 한눈에 보기")
     lines.append(f"기준일: {ref_date}")
     lines.append("")
@@ -953,22 +957,9 @@ def section_morning_quote(quote: str) -> str:
     """).strip()
 
 def section_footer() -> str:
-    return dedent(f"""
-    ---
-    본 콘텐츠는 투자 권유 목적이 아닌 정보 제공용입니다.  
-    The Signalist © 2025 All Rights Reserved.  [구독해지]  [의견보내기]
-    """).strip()
-
-MIND_TOPICS = ["확신보다 유연함", "손실을 대하는 태도", "과잉 확신의 함정", "복리와 기다림", "포지션 사이징"]
-def pick_topic_and_body(ref_date: str) -> tuple[str, str]:
-    import random
-    fallback_topic = random.choice(MIND_TOPICS)
-    fallback_body = "평정심을 유지하세요. 시장은 언제나 기회를 줍니다."
-    try:
-        bundle = _ensure_llm_bundle(ref_date)
-        im = bundle.get("investor_mind") or {}
-        return im.get("topic", fallback_topic), im.get("body", fallback_body)
-    except: return fallback_topic, fallback_body
+    # [수정] 푸터는 HTML 렌더링 단계에서 중앙 관리되도록 여기서 제거합니다.
+    # 이 함수는 더 이상 사용되지 않지만, 호환성을 위해 남겨둡니다.
+    return ""
 
 def render_newsletter(ref_date: str) -> str:
     topic, body = pick_topic_and_body(ref_date)
@@ -983,7 +974,7 @@ def render_newsletter(ref_date: str) -> str:
         section_news_digest(ref_date),
         section_investors_mind(topic, body),
         section_numbers_that_matter(ref_date),
-        section_footer()
+        # section_footer() # [수정] 푸터는 render_newsletter_html.py에서 중앙 관리하므로 호출을 제거합니다.
     ]
     return "\n\n".join([p for p in parts if p])
 

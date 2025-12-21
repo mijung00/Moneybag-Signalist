@@ -95,6 +95,13 @@ class MonthlyReport:
 
         ## 4. 장기 전망 및 투자 테제 (Long-term Outlook & Thesis)
         (내용)
+
+        ---
+        <div style="text-align: center; font-size: 12px; color: #888888; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eeeeee;">
+        본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
+        더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-" style="color: #555555; text-decoration: underline;">여기</a>를 눌러 구독을 취소해주세요.<br><br>
+        (주)비제이유앤아이 | <a href="https://www.fincore.trade/privacy" style="color: #555555;">개인정보 처리방침</a>
+        </div>
         """
         user_prompt = f"아래는 지난 한 달간의 주간 리포트 모음입니다. 이 내용을 바탕으로 월간 리포트를 작성해주세요.\n\n{full_summary}"
         report_content = _chat(system_prompt, user_prompt)

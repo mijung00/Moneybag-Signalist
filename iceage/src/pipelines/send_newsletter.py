@@ -8,8 +8,10 @@ import datetime as dt
 import math
 from pathlib import Path
 from sendgrid import SendGridAPIClient
-# 👇 [수정] Personalization 모듈 추가
-from sendgrid.helpers.mail import Mail, To, Personalization
+# 👇 [수정] Personalization 및 Substitution 모듈 추가
+from sendgrid.helpers.mail import Mail, To, Personalization, Substitution
+from itsdangerous import URLSafeTimedSerializer
+from iceage.src.pipelines.render_newsletter_html import render_markdown_to_html
 
 from dotenv import load_dotenv
 
@@ -26,28 +28,19 @@ def _get_newsletter_env_suffix() -> str:
     if env in ("", "prod"): return ""
     return f"-{env}"
 
-def load_html(ref_date: str) -> str:
-    file_name = f"Signalist_Daily_{ref_date}{_get_newsletter_env_suffix()}.html"
-    file_path = OUT_DIR / file_name
+def load_md_and_render_html(ref_date: str) -> str:
+    """
+    [수정] HTML을 직접 읽는 대신, MD 파일을 읽고 실시간으로 HTML을 렌더링합니다.
+    이렇게 하면 항상 최신 푸터와 제목 구조가 반영됩니다.
+    """
+    # render_markdown_to_html 함수는 HTML을 파일로 저장하고 그 경로를 반환합니다.
+    # 이 함수를 호출하여 최신 MD 파일로부터 항상 새로운 HTML을 생성하도록 합니다.
+    html_path = render_markdown_to_html(ref_date)
     
-    # 1. 로컬 파일 먼저 시도 (Cron 실행 시)
-    if file_path.exists():
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-            
-    # 2. S3에서 가져오기 (웹 앱에서 호출 시)
-    print(f"   -> 로컬 파일 없음. S3에서 '{file_name}' 다운로드 시도...")
-    try:
-        from common.s3_manager import S3Manager
-        s3 = S3Manager(bucket_name="fincore-output-storage")
-        s3_key = f"iceage/out/{file_name}"
-        content = s3.get_text_content(s3_key)
-        if content:
-            return content
-    except Exception as e:
-        print(f"   -> S3 다운로드 실패: {e}")
-
-    raise FileNotFoundError(f"HTML 파일이 로컬과 S3 모두에 존재하지 않습니다: {file_path}")
+    if html_path.exists():
+        return html_path.read_text(encoding="utf-8")
+    
+    raise FileNotFoundError(f"HTML 렌더링에 실패했거나 파일을 읽을 수 없습니다: {html_path}")
 
 def load_sns_report_txt(ref_date: str) -> str:
     file_name = f"Signalist_Instagram_{ref_date}.txt"
@@ -68,14 +61,13 @@ def get_subscribers(env: str, test_recipient: str, is_auto_send: bool) -> list[s
         conn = pymysql.connect(
             host=os.getenv("DB_HOST"), port=int(os.getenv("DB_PORT", 3306)),
             user=os.getenv("DB_USER"), password=os.getenv("DB_PASSWORD"),
-            db=os.getenv("DB_NAME"), charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
+            db=os.getenv("DB_NAME"), charset='utf8mb4', cursorclass=pymysql.cursors.SSDictCursor
         )
         with conn.cursor() as cursor:
             # 시그널리스트 구독자(is_signalist=1)만 조회
             cursor.execute("SELECT email FROM subscribers WHERE is_signalist=1 AND is_active=1")
-            result = cursor.fetchall()
-            emails = [row['email'] for row in result]
+            # [성능 개선] SSDictCursor와 함께 사용하여, 모든 결과를 메모리에 올리지 않고 스트리밍
+            emails = [row['email'] for row in cursor]
             print(f"✅ [DB Load] 시그널리스트 구독자 {len(emails)}명 조회 성공")
             return emails
     except Exception as e:
@@ -84,19 +76,21 @@ def get_subscribers(env: str, test_recipient: str, is_auto_send: bool) -> list[s
 
 def _extract_headline_from_html(html_content: str) -> str:
     """HTML 콘텐츠에서 제목을 추출합니다."""
-    # <title> 태그에서 추출
-    title_match = re.search(r'<title>(.*?)</title>', html_content, re.DOTALL | re.IGNORECASE)
-    if title_match:
-        # "FINCORE | " 접두사 제거
-        title = title_match.group(1).strip()
-        if "FINCORE | " in title:
-            title = title.split("FINCORE | ", 1)[1]
-        return title
-    
-    # <h1> 태그에서 추출
+    # 1. <h1> 태그에서 먼저 추출 (가장 정확한 콘텐츠 제목)
     h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', html_content, re.DOTALL | re.IGNORECASE)
     if h1_match:
         return h1_match.group(1).strip()
+
+    # 2. <title> 태그에서 추출 (폴백)
+    title_match = re.search(r'<title>(.*?)</title>', html_content, re.DOTALL | re.IGNORECASE)
+    if title_match:
+        # "FINCORE | " 또는 "Signalist Daily —" 같은 접두/접미사 제거
+        title = title_match.group(1).strip()
+        if "FINCORE | " in title:
+            title = title.split("FINCORE | ", 1)[1]
+        if "Signalist Daily — " in title:
+            title = title.replace("Signalist Daily — ", "")
+        return title
     
     return "새로운 리포트"
 
@@ -111,6 +105,10 @@ def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str,
     
     api_key = api_key.strip()
     sg = SendGridAPIClient(api_key)
+
+    # [추가] 구독 취소 토큰 생성을 위한 Serializer
+    secret_key = os.getenv('SECRET_KEY', 'a-very-secret-key-that-is-secure')
+    serializer = URLSafeTimedSerializer(secret_key)
 
     # Batch Process (1000명 제한 고려)
     batch_size = 1000
@@ -133,6 +131,18 @@ def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str,
         for email in batch:
             p = Personalization()
             p.add_to(To(email))
+
+            # [추가] 각 이메일별 개인화된 구독 취소 링크 생성
+            try:
+                unsubscribe_token = serializer.dumps(email, salt='email-unsubscribe')
+                # 서비스명을 'signalist'로 지정
+                unsubscribe_url = f"https://www.fincore.trade/unsubscribe/signalist/{unsubscribe_token}"
+                
+                p.add_substitution(Substitution("-email-", email))
+                p.add_substitution(Substitution("-unsubscribe_url-", unsubscribe_url))
+            except Exception as e:
+                print(f"⚠️ 토큰 생성 실패: {email}, {e}")
+
             message.add_personalization(p)
 
         # 3. 전송
@@ -142,6 +152,7 @@ def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str,
                 print(f"✅ [Batch {i+1}] 전송 성공")
             else:
                 print(f"❌ [Batch {i+1}] 전송 실패: {response.status_code}")
+                print(f"   -> SendGrid Body: {response.body}")
                 all_success = False
         except Exception as e:
             print(f"❌ [Batch {i+1}] 예외 발생: {e}")
@@ -150,22 +161,28 @@ def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str,
     return all_success
 
 if __name__ == '__main__':
-    # (실행부 로직 기존과 동일)
-    ref_date = None
-    if len(sys.argv) > 1 and re.match(r"\d{4}-\d{2}-\d{2}", sys.argv[1]):
-        ref_date = sys.argv[1]
-    elif os.getenv("REF_DATE"):
-        ref_date = os.getenv("REF_DATE")
+    # [핵심 수정] 로컬에서 직접 실행 시, 전체 파이프라인과 동일한 동작을 보장하도록 수정합니다.
+    # 1. 기준일(ref_date) 계산
+    from iceage.src.utils.trading_days import TradingCalendar, CalendarConfig, compute_reference_date
+    cal = TradingCalendar(CalendarConfig())
+    if len(sys.argv) > 1 and re.match(r"^\d{4}-\d{2}-\d{2}$", sys.argv[1]):
+        ref_date = sys.argv[1] # 인자로 날짜가 주어지면 사용
     else:
-        html_files = sorted(OUT_DIR.glob("Signalist_Daily_*.html"))
-        if html_files:
-            latest = html_files[-1]
-            m = re.search(r"Signalist_Daily_(\d{4}-\d{2}-\d{2})\.html", latest.name)
-            if m: ref_date = m.group(1)
-            else: ref_date = dt.date.today().isoformat()
-        else:
-            ref_date = dt.date.today().isoformat()
+        # 인자가 없으면, daily_runner와 동일한 로직으로 '어제' 영업일 기준 날짜 계산
+        now_kst = datetime.now(ZoneInfo('Asia/Seoul'))
+        ref_date = compute_reference_date(cal, now_kst).isoformat()
 
+    # 2. 최신 마크다운(MD) 파일 생성 강제
+    #    이렇게 하면 이 스크립트만 실행해도 제목과 푸터가 항상 올바르게 적용됩니다.
+    try:
+        from iceage.src.pipelines.morning_newsletter import main as generate_md_main
+        original_argv = sys.argv
+        sys.argv = [sys.argv[0], ref_date] # morning_newsletter에 날짜 전달
+        generate_md_main()
+        sys.argv = original_argv # 원래대로 복구
+    except Exception as e:
+        print(f"⚠️ 마크다운 생성/업데이트 중 오류 발생: {e}")
+    
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
     
     sender_name = os.getenv("SIGNALIST_SENDER_NAME", "Signalist Daily")
@@ -180,7 +197,7 @@ if __name__ == '__main__':
     print(f"📧 Pipeline start: {ref_date} (env={env})")
     
     try:
-        html_body = load_html(ref_date) # [수정] load_html은 이미 전체 HTML을 반환
+        html_body = load_md_and_render_html(ref_date) # [수정] MD파일로부터 실시간 렌더링
         
         # [수정] HTML 본문에서 제목 추출
         headline = _extract_headline_from_html(html_body)

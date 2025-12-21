@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* 개인정보처리방침 페이지용 추가 스타일 */
+    .privacy-content h1 { font-size: 1.875rem; font-weight: 800; margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; }
+    .privacy-content h3 { font-size: 1.25rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
+    .privacy-content p { margin-bottom: 1rem; line-height: 1.75; }
+    .privacy-content table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.875rem; }
+    .privacy-content th, .privacy-content td { border: 1px solid #d1d5db; padding: 0.75rem; text-align: left; }
+    .privacy-content th { background-color: #f3f4f6; font-weight: 600; }
+</style>
+<div class="bg-white p-6 md:p-10 rounded-lg shadow-lg border border-gray-200">
+    <div class="privacy-content">{{ content_html|safe }}</div>
+</div>
+{% endblock %}

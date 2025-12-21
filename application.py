@@ -7,8 +7,10 @@ import boto3
 import re
 import subprocess
 from flask import Flask, render_template, request, flash, redirect, url_for, Response
+import markdown
 from pathlib import Path
 from datetime import datetime, timedelta
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 from botocore.exceptions import ClientError
 from threading import Thread
 
@@ -28,7 +30,11 @@ except ImportError:
 # [중요] AWS Elastic Beanstalk는 'application'이라는 변수를 찾습니다.
 application = Flask(__name__)
 app = application  # 로컬 실행 호환용 Alias
-application.secret_key = secrets.token_hex(16)
+
+# [수정] SECRET_KEY를 환경변수에서 가져오도록 변경 (서버 재시작 시에도 토큰 유지를 위함)
+application.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
+# 구독 취소 토큰을 위한 Serializer 초기화
+s = URLSafeTimedSerializer(application.secret_key)
 
 # ----------------------------------------------------------------
 # [2] 설정 로더 (AWS 환경변수 & Secrets Manager 통합)
@@ -541,6 +547,73 @@ def sitemap_xml():
 @application.route('/health')
 def health_check():
     return "OK", 200
+
+@application.route('/privacy')
+def privacy_policy():
+    """개인정보 처리방침 페이지 렌더링"""
+    try:
+        md_path = BASE_DIR / "templates" / "privacy.md"
+
+        md_content = md_path.read_text(encoding='utf-8')
+        
+        # 마크다운을 HTML로 변환 (테이블 확장 기능 포함)
+        html_content = markdown.markdown(md_content, extensions=['tables'])
+        
+        page_title = "개인정보 처리방침 | FINCORE"
+        return render_template('privacy.html', content_html=html_content, page_title=page_title)
+    except FileNotFoundError:
+        flash("개인정보 처리방침 파일을 찾을 수 없습니다.", "error")
+        return redirect(url_for('index'))
+    except Exception as e:
+        print(f"⚠️ [Privacy Page Error] {e}")
+        flash("페이지를 표시하는 중 오류가 발생했습니다.", "error")
+        return redirect(url_for('index'))
+
+# ================================================================
+# 🌐 [PART C] 구독 취소 라우트
+# ================================================================
+@application.route('/unsubscribe/<service_name>/<token>', methods=['GET', 'POST'])
+def unsubscribe(service_name, token):
+    if service_name not in ['signalist', 'moneybag']:
+        flash('잘못된 접근입니다.', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        # 암호화된 토큰을 복호화하여 이메일 주소를 얻습니다. (유효시간: 30일)
+        email = s.loads(token, salt='email-unsubscribe', max_age=2592000)
+    except SignatureExpired:
+        flash('구독 취소 링크가 만료되었습니다. 최신 이메일의 링크를 이용해주세요.', 'error')
+        return redirect(url_for('index'))
+    except (BadTimeSignature, Exception):
+        flash('잘못된 접근입니다.', 'error')
+        return redirect(url_for('index'))
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, is_active, is_signalist, is_moneybag FROM subscribers WHERE email = %s", (email,))
+            subscriber = cursor.fetchone()
+
+            if not subscriber or not subscriber['is_active']:
+                flash('이미 구독이 취소되었거나 등록되지 않은 이메일입니다.', 'info')
+                return redirect(url_for('index'))
+
+            if request.method == 'POST':
+                # POST 요청 시, 실제 DB에서 해당 서비스의 구독 상태를 비활성화합니다.
+                update_col = 'is_signalist' if service_name == 'signalist' else 'is_moneybag'
+                cursor.execute(f"UPDATE subscribers SET {update_col} = 0 WHERE id = %s", (subscriber['id'],))
+                conn.commit()
+                flash('뉴스레터 구독이 성공적으로 취소되었습니다.', 'success')
+                return redirect(url_for('index'))
+    except Exception as e:
+        print(f"[DB Error] Unsubscribe failed: {e}")
+        flash('구독 취소 처리 중 오류가 발생했습니다.', 'error')
+        return redirect(url_for('index'))
+    finally:
+        if conn and conn.open: conn.close()
+
+    display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
+    return render_template('unsubscribe.html', token=token, email=email, service_name=service_name, display_name=display_name)
 
 if __name__ == '__main__':
     application.run(port=5000, debug=True)
