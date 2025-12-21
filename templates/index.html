@@ -54,21 +54,27 @@
                     무료로 시작하기
                 </button>
             </div>
-            <!-- [수정] 개인정보 수집 동의 항목 법적 요건에 맞게 상세화 -->
+            <!-- [수정] 개인정보 수집 동의 항목을 접고 펼 수 있는 형태로 변경 -->
             <div class="pt-4 text-xs text-gray-500">
-                <div class="bg-gray-50 p-4 rounded-md border border-gray-200">
-                    <p class="font-bold text-gray-700 mb-2">개인정보 수집 및 이용 동의 (필수)</p>
-                    <ul class="space-y-1 list-disc list-inside text-gray-600">
-                        <li><span class="font-semibold">수집 주체:</span> 주식회사 비제이유앤아이</li>
-                        <li><span class="font-semibold">수집 목적:</span> 뉴스레터 발송 및 서비스 안내</li>
-                        <li><span class="font-semibold">수집 항목:</span> 이메일 주소</li>
-                        <li><span class="font-semibold">보유 및 이용 기간:</span> 구독 해지 시까지</li>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <input id="agree_terms" name="agree_terms" type="checkbox" required class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <label for="agree_terms" class="ml-2 font-medium text-gray-700">개인정보 수집 및 이용 동의 (필수)</label>
+                    </div>
+                    <button type="button" id="toggle-privacy-details" class="text-gray-400 hover:text-gray-700 text-xs font-semibold p-1 flex items-center">
+                        <span id="privacy-toggle-text">내용 보기</span>
+                        <i id="privacy-toggle-icon" class="fas fa-chevron-down text-xs ml-1 transition-transform duration-200"></i>
+                    </button>
+                </div>
+
+                <div id="privacy-details" class="hidden mt-3 bg-gray-50 p-4 rounded-md border border-gray-200">
+                    <ul class="space-y-1.5 list-disc list-inside text-gray-600">
+                        <li><strong>수집 주체:</strong> 주식회사 비제이유앤아이</li>
+                        <li><strong>수집 목적:</strong> 뉴스레터 발송 및 서비스 안내</li>
+                        <li><strong>수집 항목:</strong> 이메일 주소</li>
+                        <li><strong>보유 및 이용 기간:</strong> 구독 해지 시까지</li>
                     </ul>
                     <p class="mt-3">※ 귀하는 동의를 거부할 권리가 있으며, 거부 시 뉴스레터 구독이 불가합니다.</p>
-                </div>
-                <div class="flex items-center mt-4">
-                    <input id="agree_terms" name="agree_terms" type="checkbox" required class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="agree_terms" class="ml-2 font-medium text-gray-700">위 내용에 동의합니다.</label>
                 </div>
             </div>
         </div>

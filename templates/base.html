@@ -211,6 +211,27 @@
         inquiryModal.addEventListener('click', (e) => {
             if (e.target === inquiryModal) closeModal();
         });
+
+        // [추가] 개인정보 동의 상세내용 토글 스크립트
+        const toggleBtn = document.getElementById('toggle-privacy-details');
+        const detailsDiv = document.getElementById('privacy-details');
+        const toggleText = document.getElementById('privacy-toggle-text');
+        const toggleIcon = document.getElementById('privacy-toggle-icon');
+
+        if (toggleBtn && detailsDiv && toggleText && toggleIcon) {
+            toggleBtn.addEventListener('click', () => {
+                const isHidden = detailsDiv.classList.contains('hidden');
+                detailsDiv.classList.toggle('hidden');
+                
+                if (isHidden) { // 펼쳐질 때
+                    toggleIcon.style.transform = 'rotate(180deg)';
+                    toggleText.textContent = '내용 닫기';
+                } else { // 접힐 때
+                    toggleIcon.style.transform = 'rotate(0deg)';
+                    toggleText.textContent = '내용 보기';
+                }
+            });
+        }
     </script>
 
 </body>
