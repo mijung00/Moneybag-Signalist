@@ -178,8 +178,32 @@ class DailyNewsletter:
         news_items = self.news_collector.collect_all()
         summary = ""
         for idx, item in enumerate(news_items[:10], 1):
-             pub_date = item.get('published_at', datetime.now().strftime('%H:%M'))
-             summary += f"[{idx}] Source: {item['source']} ({pub_date})\nTitle: {item['title']}\nContent: {item.get('summary', '내용없음')}\n\n"
+             # [개선] 여러 뉴스 소스의 다양한 필드명을 처리하기 위한 로직
+             # 각 뉴스 아이템(dict)에서 가능한 키들을 순서대로 탐색합니다.
+
+             # 1. 원문 제목 찾기 (시도할 키 목록)
+             possible_title_keys = ['original_title', 'title', 'headline']
+             original_title = '제목 없음'
+             for key in possible_title_keys:
+                 if item.get(key):
+                     original_title = item[key]
+                     break
+
+             # 2. 게시 시각 찾기 (시도할 키 목록)
+             possible_date_keys = ['published_at', 'published', 'pubDate', 'updated', 'created_at', 'timestamp']
+             pub_date_str = datetime.now().strftime('%Y-%m-%d %H:%M') # 기본값
+             for key in possible_date_keys:
+                 if item.get(key):
+                     # TODO: 날짜 형식이 다양할 수 있으나, 우선 문자열 그대로 전달
+                     pub_date_str = str(item[key])
+                     break
+             
+             # 3. 기타 정보 추출
+             source = item.get('source', 'N/A')
+             content = item.get('summary', '내용 없음')
+
+             # 4. AI에게 전달할 최종 문자열 구성
+             summary += f"[[뉴스 #{idx}]]\n원문 제목: {original_title}\n출처: {source}\n게시 시각: {pub_date_str}\n내용: {content}\n\n"
         return summary
 
     def emergency_check(self):
@@ -261,7 +285,7 @@ class DailyNewsletter:
         - 지시: 위 상황을 바탕으로 클릭을 유도하는 가장 자극적이고 매력적인 한 줄 제목을 창작해라. (명령어 자체를 출력하지 말고, 창작된 제목만 출력할 것)
         
         [🔥🔥 절대 준수 사항]
-        1. **뉴스 포맷:** `1. **[제목]**` -> `> 🔍 **팩트:**` -> `> 👁️ **헌터의 뷰:**` 형식을 목숨 걸고 지켜라.
+        1. **뉴스 포맷:** `### 1. [뉴스 제목]` -> `> 🔍 **팩트:**` -> `> 👁️ **헌터의 뷰:**` -> `*Original...*` 형식을 목숨 걸고 지켜라.
         2. **독백 필수:** 대시보드 아래 독백 란을 비우지 마라.
         3. **사령관 빙의:** 너는 지금 '{commander_name}' 봇이다. 말투와 관점을 그에 맞춰라.
            - Hunter(하이에나): 냉소적, 역추세 강조. "공포에 사라."
@@ -276,7 +300,7 @@ class DailyNewsletter:
            - **코멘트:** 시뮬레이션 결과표를 보고 **왜 이 전략(Bot)이 소환되었는지** 설명해라.
            - **결론:** 위 두 가지를 종합하여 **구체적인 행동(Action)**을 지시해라.  
         2. **뉴스 레이아웃 (신뢰도 강화):**
-           - `1. **[한글 뉴스 제목]**`
+           - `### 1. [한글 뉴스 제목]`
            - `> 🔍 **팩트:** (내용)`
            - `> 👁️ **헌터의 뷰:** (해석)`
              `*Original: [영어 원문 제목] | Source: [매체명] ([시간])*`
