@@ -276,11 +276,22 @@ class MarketWatchdog:
     def run_forever(self):
         print("🦅 [System] Moneybag(=The Whale Hunter) Watchdog 시작", flush=True)
 
+        # Heartbeat 파일 경로 (watchdogs.py 매니저가 감시함)
+        hb_path = os.getenv("MONEYBAG_HEARTBEAT_PATH")
+
         if BRIEF_ON_START and not self._startup_brief_sent:
             self.tg.send(self._format_brief())
             self._startup_brief_sent = True
 
         while not self._stop:
+            # ✅ Heartbeat 갱신 (나 살아있음)
+            if hb_path:
+                try:
+                    with open(hb_path, 'a'):
+                        os.utime(hb_path, None)
+                except Exception:
+                    pass
+
             now = self._now()
 
             # (A) 정기 브리핑
