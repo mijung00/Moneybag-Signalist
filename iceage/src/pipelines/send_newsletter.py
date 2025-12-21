@@ -76,12 +76,19 @@ def get_subscribers(env: str, test_recipient: str, is_auto_send: bool) -> list[s
 
 def _extract_headline_from_html(html_content: str) -> str:
     """HTML 콘텐츠에서 제목을 추출합니다."""
-    # 1. <h1> 태그에서 먼저 추출 (가장 정확한 콘텐츠 제목)
+    # [수정] 1. <h1> 바로 뒤에 오는 이탤릭체 부제(kicker)를 최우선으로 찾습니다.
+    em_match = re.search(r'</h1>\s*<p><em>(.*?)</em></p>', html_content, re.DOTALL | re.IGNORECASE)
+    if em_match:
+        kicker = em_match.group(1).strip()
+        if kicker:
+            return kicker
+
+    # 2. <h1> 태그에서 추출 (폴백)
     h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', html_content, re.DOTALL | re.IGNORECASE)
     if h1_match:
         return h1_match.group(1).strip()
 
-    # 2. <title> 태그에서 추출 (폴백)
+    # 3. <title> 태그에서 추출 (최종 폴백)
     title_match = re.search(r'<title>(.*?)</title>', html_content, re.DOTALL | re.IGNORECASE)
     if title_match:
         # "FINCORE | " 또는 "Signalist Daily —" 같은 접두/접미사 제거
@@ -135,8 +142,10 @@ def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str,
             # [추가] 각 이메일별 개인화된 구독 취소 링크 생성
             try:
                 unsubscribe_token = serializer.dumps(email, salt='email-unsubscribe')
+                # [수정] 로컬 테스트를 위해 WEB_BASE_URL 환경변수 사용
+                web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
                 # 서비스명을 'signalist'로 지정
-                unsubscribe_url = f"https://www.fincore.trade/unsubscribe/signalist/{unsubscribe_token}"
+                unsubscribe_url = f"{web_base_url}/unsubscribe/signalist/{unsubscribe_token}"
                 
                 p.add_substitution(Substitution("-email-", email))
                 p.add_substitution(Substitution("-unsubscribe_url-", unsubscribe_url))
@@ -161,27 +170,22 @@ def send_email_with_sendgrid(to_emails: list[str], subject: str, html_body: str,
     return all_success
 
 if __name__ == '__main__':
-    # [핵심 수정] 로컬에서 직접 실행 시, 전체 파이프라인과 동일한 동작을 보장하도록 수정합니다.
-    # 1. 기준일(ref_date) 계산
-    from iceage.src.utils.trading_days import TradingCalendar, CalendarConfig, compute_reference_date
-    cal = TradingCalendar(CalendarConfig())
+    # [단순화] 로컬 테스트를 위해 복잡한 날짜 계산 대신, 가장 최근 파일을 찾거나 인자를 사용합니다.
     if len(sys.argv) > 1 and re.match(r"^\d{4}-\d{2}-\d{2}$", sys.argv[1]):
         ref_date = sys.argv[1] # 인자로 날짜가 주어지면 사용
     else:
-        # 인자가 없으면, daily_runner와 동일한 로직으로 '어제' 영업일 기준 날짜 계산
-        now_kst = datetime.now(ZoneInfo('Asia/Seoul'))
-        ref_date = compute_reference_date(cal, now_kst).isoformat()
-
-    # 2. 최신 마크다운(MD) 파일 생성 강제
-    #    이렇게 하면 이 스크립트만 실행해도 제목과 푸터가 항상 올바르게 적용됩니다.
-    try:
-        from iceage.src.pipelines.morning_newsletter import main as generate_md_main
-        original_argv = sys.argv
-        sys.argv = [sys.argv[0], ref_date] # morning_newsletter에 날짜 전달
-        generate_md_main()
-        sys.argv = original_argv # 원래대로 복구
-    except Exception as e:
-        print(f"⚠️ 마크다운 생성/업데이트 중 오류 발생: {e}")
+        # 인자가 없으면 가장 최근에 생성된 MD 파일을 찾습니다.
+        md_files = sorted(OUT_DIR.glob("Signalist_Daily_*.md"))
+        if not md_files:
+            print("❌ 발송할 뉴스레터(.md) 파일이 없습니다.")
+            sys.exit(1)
+        latest_md = md_files[-1]
+        match = re.search(r'(\d{4}-\d{2}-\d{2})', latest_md.name)
+        if not match:
+            print(f"❌ 파일명에서 날짜를 찾을 수 없습니다: {latest_md.name}")
+            sys.exit(1)
+        ref_date = match.group(1)
+        print(f"▶️ 최신 파일 자동 선택: {latest_md.name}")
     
     env = os.getenv("NEWSLETTER_ENV", "prod").strip().lower()
     

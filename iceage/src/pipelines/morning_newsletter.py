@@ -973,8 +973,7 @@ def render_newsletter(ref_date: str) -> str:
         section_global_minute(ref_date),
         section_news_digest(ref_date),
         section_investors_mind(topic, body),
-        section_numbers_that_matter(ref_date),
-        # section_footer() # [수정] 푸터는 render_newsletter_html.py에서 중앙 관리하므로 호출을 제거합니다.
+        section_numbers_that_matter(ref_date)
     ]
     return "\n\n".join([p for p in parts if p])
 

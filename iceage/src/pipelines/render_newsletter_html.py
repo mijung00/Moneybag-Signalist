@@ -42,6 +42,18 @@ def render_markdown_to_html(ref_date: str) -> Path:
 
     md_text = md_path.read_text(encoding="utf-8")
 
+    # [수정] 마크다운 본문에 포함될 수 있는 낡은 푸터 텍스트를 강제로 제거합니다.
+    # 이렇게 하면 어떤 버전의 MD 파일이든 푸터가 중복되지 않습니다.
+    old_footer_patterns = [
+        "본 콘텐츠는 투자 권유 목적이 아닌 정보 제공용입니다.",
+        "The Signalist © 2025 All Rights Reserved.",
+    ]
+    lines = md_text.split('\n')
+    cleaned_lines = [
+        line for line in lines if not any(pattern in line for pattern in old_footer_patterns)
+    ]
+    md_text = "\n".join(cleaned_lines).strip()
+
     # [추가] 마크다운 첫 줄에서 제목 추출
     first_line = md_text.split('\n', 1)[0]
     headline = f"Signalist Daily — {ref_date}" # 기본값

@@ -106,6 +106,8 @@ class EmailSender:
 
     def _wrap_body_in_template(self, body_content):
         """HTML 본문을 받아 전체 이메일 템플릿에 삽입합니다."""
+        # [수정] 로컬 테스트를 위해 WEB_BASE_URL 환경변수 사용
+        web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
         return f"""
         <!DOCTYPE html>
         <html>
@@ -134,7 +136,7 @@ class EmailSender:
                 <div class="footer" style="text-align: center; font-size: 12px; color: #888888; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eeeeee;">
                     본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
                     더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-" style="color: #555555; text-decoration: underline;">여기</a>를 눌러 구독을 취소해주세요.<br><br>
-                    (주)비제이유앤아이 | <a href="https://www.fincore.trade/privacy" style="color: #555555;">개인정보 처리방침</a><br>
+                    (주)비제이유앤아이 | <a href="{web_base_url}/privacy" style="color: #555555; text-decoration: underline;">개인정보 처리방침</a><br>
                     <p style="margin-top: 10px;">본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.</p>
                 </div>
             </div>
@@ -180,8 +182,10 @@ class EmailSender:
 
                 # [추가] 각 이메일별 개인화된 구독 취소 링크 생성
                 try:
+                    # [수정] 로컬 테스트를 위해 WEB_BASE_URL 환경변수 사용
+                    web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
                     unsubscribe_token = self.serializer.dumps(email, salt='email-unsubscribe')
-                    unsubscribe_url = f"https://www.fincore.trade/unsubscribe/moneybag/{unsubscribe_token}"
+                    unsubscribe_url = f"{web_base_url}/unsubscribe/moneybag/{unsubscribe_token}"
                     
                     # [추가] SendGrid Substitution 기능으로 동적 값 주입
                     p.add_substitution(Substitution("-email-", email))
@@ -191,8 +195,10 @@ class EmailSender:
                 message.add_personalization(p)
             try:
                 response = sg.send(message)
-                print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공 (Status: {response.status_code})")
-                if response.status_code >= 400:
+                if 200 <= response.status_code < 300:
+                    print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공 (Status: {response.status_code})")
+                else:
+                    print(f"❌ [Batch {i+1}/{total_batches}] 발송 실패 (Status: {response.status_code})")
                     print(f"   -> SendGrid Body: {response.body}")
             except Exception as e:
                 print(f"❌ [Batch {i+1}] 발송 실패: {e}")
@@ -230,7 +236,7 @@ if __name__ == "__main__":
             if len(sys.argv) > 2:
                 cli_recipient_email = sys.argv[2]
 
-    # 2. 발송할 파일 결정
+    # [단순화] 발송할 파일 결정 (최신 파일 또는 지정된 파일)
     file_to_send = None
     if file_to_send_path_str:
         file_to_send = Path(file_to_send_path_str)
@@ -245,7 +251,7 @@ if __name__ == "__main__":
         print(f"❌ 발송할 마크다운 파일을 찾을 수 없습니다. ({file_to_send})")
         sys.exit(1)
 
-    # 3. 발송 실행
+    # 발송 실행
     sender = EmailSender()
     is_auto_send = os.getenv("NEWSLETTER_AUTO_SEND", "0") == "1"
 
