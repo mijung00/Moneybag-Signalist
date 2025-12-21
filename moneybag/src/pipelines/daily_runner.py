@@ -18,6 +18,7 @@ load_env(BASE_DIR)
 # 파이프라인 모듈 임포트
 from moneybag.src.pipelines.daily_newsletter import DailyNewsletter
 from moneybag.src.pipelines.generate_cardnews_assets import CardNewsFactory
+from moneybag.src.pipelines.generate_summary_image import SummaryImageGenerator
 from moneybag.src.pipelines.send_email import EmailSender
 from moneybag.src.utils.slack_notifier import SlackNotifier
 
@@ -101,6 +102,16 @@ def run_routine(mode="morning"):
         print(f"⚠️ [Warning] 카드뉴스 생성 실패 (계속 진행): {e}")
 
     # ---------------------------------------------------------
+    # 2.5단계: 커뮤니티용 요약 이미지 생성
+    # ---------------------------------------------------------
+    try:
+        print("\n2️⃣-2️⃣ 커뮤니티용 요약 이미지 생성 중...")
+        summary_image_generator = SummaryImageGenerator(mode=mode)
+        summary_image_generator.run()
+    except Exception as e:
+        print(f"⚠️ [Warning] 요약 이미지 생성 실패 (계속 진행): {e}")
+
+    # ---------------------------------------------------------
     # 3단계: 이메일 발송 (경로 전달 필수!)
     # ---------------------------------------------------------
     try:
@@ -166,5 +177,3 @@ if __name__ == "__main__":
         mode_arg = "morning"
 
     run_routine(mode_arg)
-
-

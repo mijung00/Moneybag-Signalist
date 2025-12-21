@@ -193,6 +193,7 @@ def main() -> None:
     run_cardnews_output = os.getenv("RUN_CARDNEWS_OUTPUT", "1") == "1"
     run_tts_output = os.getenv("RUN_TTS_OUTPUT", "1") == "1"
     run_video_output = os.getenv("RUN_VIDEO_OUTPUT", "1") == "1"
+    run_summary_image_output = os.getenv("RUN_SUMMARY_IMAGE_OUTPUT", "1") == "1"
     
     # 과거 ref_date 에 대한 "수집 스킵" 여부 결정
     skip_collection = False
@@ -349,6 +350,17 @@ def main() -> None:
     else:
         print("[INFO] RUN_CARDNEWS_OUTPUT!=1 이므로 카드뉴스 생성은 스킵합니다.")
         
+    # -----------------------
+    # [NEW] 커뮤니티용 요약 이미지 생성
+    # -----------------------
+    if run_summary_image_output:
+        run_step(
+            "커뮤니티용 요약 이미지 생성",
+            ["python", "-m", "iceage.src.pipelines.generate_summary_image", ref_str],
+        )
+    else:
+        print("[INFO] RUN_SUMMARY_IMAGE_OUTPUT!=1 이므로 요약 이미지 생성은 스킵합니다.")
+
 # -----------------------
     # 10) TTS 오디오 생성 (쇼츠 / 데일리) -> [주석 처리: 사용 안 함]
     # -----------------------

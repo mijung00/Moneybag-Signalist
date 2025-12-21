@@ -227,6 +227,7 @@ if __name__ == "__main__":
     # 1. 인자 파싱 (파일 경로, 테스트 이메일)
     file_to_send_path_str = None
     cli_recipient_email = None
+    test_recipient_from_env = os.getenv("TEST_RECIPIENT") # [추가] 환경 변수 읽기
 
     if len(sys.argv) > 1:
         if "@" in sys.argv[1] and "." in sys.argv[1]:
@@ -235,6 +236,9 @@ if __name__ == "__main__":
             file_to_send_path_str = sys.argv[1]
             if len(sys.argv) > 2:
                 cli_recipient_email = sys.argv[2]
+    
+    # [추가] CLI 인자 또는 환경 변수에서 테스트 수신자 결정
+    final_test_recipient = cli_recipient_email or test_recipient_from_env
 
     # [단순화] 발송할 파일 결정 (최신 파일 또는 지정된 파일)
     file_to_send = None
@@ -255,9 +259,9 @@ if __name__ == "__main__":
     sender = EmailSender()
     is_auto_send = os.getenv("NEWSLETTER_AUTO_SEND", "0") == "1"
 
-    if cli_recipient_email:
-        print(f"📧 [CLI Test Mode] 테스트 발송 시작 -> {cli_recipient_email}")
-        sender.to_emails = [cli_recipient_email]
+    if final_test_recipient:
+        print(f"📧 [Single Send Mode] 단건 발송 시작 -> {final_test_recipient}")
+        sender.to_emails = [final_test_recipient]
     elif is_auto_send:
         print(f"✅ [Production Mode] DB에 등록된 구독자 {len(sender.to_emails)}명에게 발송합니다.")
     else:

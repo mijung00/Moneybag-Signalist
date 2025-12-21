@@ -221,7 +221,8 @@ if __name__ == '__main__':
         print(f"❌ {e}")
         
     # SNS Report to Admin
-    if os.getenv("SEND_SNS_REPORT_TO_ADMIN") == "1" and admin_email:
+    # [수정] TEST_RECIPIENT가 설정된 경우(단건 발송)에는 관리자 리포트를 보내지 않음
+    if os.getenv("SEND_SNS_REPORT_TO_ADMIN") == "1" and admin_email and not test_recipient:
         try:
             sns_body = load_sns_report_txt(ref_date)
             subject_sns = f"[ADMIN] SNS Report {ref_date}"
