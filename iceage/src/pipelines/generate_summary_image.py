@@ -33,7 +33,12 @@ class SummaryImageGenerator:
         self.md_path = PROJECT_ROOT / "iceage" / "out" / f"Signalist_Daily_{self.ref_date}.md"
         self.output_dir = PROJECT_ROOT / "iceage" / "out" / "summary_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.hti = Html2Image(output_path=str(self.output_dir))
+        # [수정] 커뮤니티 권장: 실행 경로 명시 및 샌드박스 비활성화
+        self.hti = Html2Image(
+            output_path=str(self.output_dir),
+            browser_executable='/usr/bin/chromium-browser',
+            custom_flags=['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage']
+        )
         self.s3_manager = S3Manager(bucket_name="fincore-output-storage") if S3Manager else None
 
     def _summarize_with_llm(self, md_content: str) -> str:
