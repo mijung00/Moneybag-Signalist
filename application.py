@@ -157,7 +157,17 @@ def send_report_email_async(service_name, date_str, recipient_email):
         env["NEWSLETTER_AUTO_SEND"] = "0" # 구독자 DB 무시하고 강제 발송 (단건 발송)
         env["TEST_RECIPIENT"] = recipient_email
         
-        subprocess.run([sys.executable, "-m", module_name, date_str], env=env)
+        command = [sys.executable, "-m", module_name, date_str]
+        print(f"🚀 [Archive Email] Executing: {' '.join(command)}")
+        subprocess.run(command, env=env)
+
+def send_welcome_email_async(service_name, recipient_email):
+    """[NEW] 신규 구독자에게 환영 메일을 발송하는 전용 함수"""
+    with app.app_context():
+        module_name = f"{service_name}.src.pipelines.send_welcome_email"
+        command = [sys.executable, "-m", module_name, recipient_email]
+        print(f"🚀 [Welcome Email] Executing: {' '.join(command)}")
+        subprocess.run(command, env=os.environ.copy())
 
 def send_inquiry_email_async(to_email, subject, body, sender_email):
     """[NEW] 백그라운드에서 제휴문의 이메일을 발송하는 함수 (앱 컨텍스트 포함)"""
@@ -285,17 +295,12 @@ def index():
                 # [중요] 이메일 발송 전에 먼저 커밋해서 구독 정보 저장 확실히 하기
                 conn.commit()
 
-                # [수정] 신규/기존 상관없이 구독 신청한 서비스의 최신 리포트 발송
+                # [수정] 신규/기존 구독자에게는 전용 '환영 메일' 발송 로직 사용
                 if sub_signalist:
-                    latest_signalist_date = get_latest_report_date('signalist')
-                    if latest_signalist_date:
-                        Thread(target=send_report_email_async, args=('signalist', latest_signalist_date, email)).start()
-                        flash("시그널리스트 최신 리포트를 메일로 보내드렸습니다.", "info")
+                    Thread(target=send_welcome_email_async, args=('iceage', email)).start()
                 if sub_moneybag:
-                    latest_moneybag_date = get_latest_report_date('moneybag')
-                    if latest_moneybag_date:
-                        Thread(target=send_report_email_async, args=('moneybag', latest_moneybag_date, email)).start()
-                        flash("웨일헌터 최신 리포트를 메일로 보내드렸습니다.", "info")
+                    Thread(target=send_welcome_email_async, args=('moneybag', email)).start()
+                flash("구독해주셔서 감사합니다! 최신 리포트를 메일로 보내드렸습니다. 🚀", "success")
 
         except Exception as e:
             print(f"[DB Error] {e}")
@@ -307,25 +312,13 @@ def index():
                 conn.close()
 
         if action == 'unlock':
-            # 잠금 해제 요청: 현재 보고 있는 리포트 발송
+            # [유지] 잠금 해제 요청: 현재 보고 있는 '특정 날짜' 리포트 발송 (기존 로직 유지)
             service_name = request.form.get('service_name')
             date_str = request.form.get('date_str')
             Thread(target=send_report_email_async, args=(service_name, date_str, email)).start()
             flash(f"{email}으로 해당 리포트를 발송했습니다. 🚀", "info")
-            return redirect(redirect_url)
-        else:
-            # 메인 폼 구독: 최신 리포트 발송
-            if sub_signalist:
-                latest_date = get_latest_report_date('signalist')
-                if latest_date:
-                    Thread(target=send_report_email_async, args=('signalist', latest_date, email)).start()
-                    flash("시그널리스트 최신 리포트를 메일로 보내드렸습니다.", "info")
-            if sub_moneybag:
-                latest_date = get_latest_report_date('moneybag')
-                if latest_date:
-                    Thread(target=send_report_email_async, args=('moneybag', latest_date, email)).start()
-                    flash("웨일헌터 최신 리포트를 메일로 보내드렸습니다.", "info")
-            return redirect(redirect_url)
+        
+        return redirect(redirect_url)
 
     # GET 요청
     # [추가] 최근 리포트 정보 가져오기

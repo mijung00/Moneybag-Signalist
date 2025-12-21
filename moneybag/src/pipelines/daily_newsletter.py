@@ -357,8 +357,8 @@ class DailyNewsletter:
         else:
             result_text = _chat(system_prompt, user_prompt)
         
-        self.save_to_file(result_text, today_date, mode)
-        return result_text
+        saved_path = self.save_to_file(result_text, today_date, mode)
+        return saved_path
 
 
     # [기존 save_to_file 함수를 이걸로 통째로 교체하세요]
@@ -380,6 +380,7 @@ class DailyNewsletter:
             f.write(text)
             
         print(f"\n✅ [저장 완료] {filename} (환경: {env_mode})")
+        return save_path
 
 if __name__ == "__main__":
     import sys

@@ -55,6 +55,7 @@ def run_routine(mode="morning"):
     card_factory = CardNewsFactory()
     email_sender = EmailSender()
     
+    generated_md_path = None # [추가] 생성된 파일 경로를 저장할 변수
     # 👇 [수정] 한국 시간(KST) 기준으로 날짜를 뽑도록 변경!
     now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
     today_str = now_kst.strftime("%Y.%m.%d")
@@ -70,13 +71,16 @@ def run_routine(mode="morning"):
     for attempt in range(max_retries):
         try:
             print(f"\n1️⃣ 뉴스레터 생성 중... (시도 {attempt+1}/{max_retries})")
-            md_content = newsletter.generate(mode) # 파일은 generate 내부에서 저장됨
+            # [수정] 생성된 파일의 경로를 직접 받음
+            generated_md_path = newsletter.generate(mode)
             
             # 🔍 검증
-            if validate_markdown(md_content):
-                print("✅ [Runner] 시크릿 노트 검증 통과!")
-                success = True
-                break
+            if generated_md_path and generated_md_path.exists():
+                md_content = generated_md_path.read_text(encoding='utf-8')
+                if validate_markdown(md_content):
+                    print(f"✅ [Runner] 시크릿 노트 검증 통과! ({generated_md_path.name})")
+                    success = True
+                    break
             else:
                 print(f"⚠️ [Runner] 생성 결과가 불완전합니다. 재시도합니다...")
                 time.sleep(5) 
@@ -115,17 +119,12 @@ def run_routine(mode="morning"):
     # 3단계: 이메일 발송 (경로 전달 필수!)
     # ---------------------------------------------------------
     try:
-        print(f"\n3️⃣ 이메일 발송 중... (타겟: {filename})")
+        print(f"\n3️⃣ 이메일 발송 중... (타겟: {generated_md_path.name})")
         
-        # [수정] 파일 경로 존재 확인
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"발송할 파일을 찾을 수 없습니다: {file_path}")
-            
-        # [수정] 명확한 메서드 호출 (파일 경로 전달)
-        # EmailSender의 메서드가 send()라고 가정합니다. 
-        # 만약 send_email()이라면 그에 맞춰 수정해주세요.
-        # daily_runner.py
-        email_sender.send(str(file_path), mode=mode)
+        # [수정] 더 이상 파일 경로를 추측하지 않고, 생성 단계에서 반환된 경로를 직접 사용
+        if not generated_md_path or not generated_md_path.exists():
+            raise FileNotFoundError(f"발송할 뉴스레터 파일을 찾을 수 없습니다: {generated_md_path}")
+        email_sender.send(str(generated_md_path), mode=mode)
         
         print(f"✅ [Moneybag] **{mode.upper()}** 시크릿 노트 발송 완료! 📧")
         
