@@ -3,7 +3,8 @@ import os
 import sys
 from pathlib import Path
 import markdown
-from html2image import Html2Image
+import requests
+import uuid
 # --- 경로 설정 ---
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -19,12 +20,6 @@ except ImportError:
     print("⚠️ [LLM Import Error] OpenAI 기능이 비활성화될 수 있습니다.")
     _chat = None
 
-try:
-    from common.s3_manager import S3Manager
-except ImportError:
-    print("⚠️ [S3 Import Error] S3 업로드 기능이 비활성화될 수 있습니다.")
-    S3Manager = None
-
 class SummaryImageGenerator:
     def __init__(self, ref_date: str):
         self.ref_date = ref_date
@@ -32,7 +27,7 @@ class SummaryImageGenerator:
         self.md_path = PROJECT_ROOT / "iceage" / "out" / f"Signalist_Daily_{self.ref_date}.md"
         self.output_dir = PROJECT_ROOT / "iceage" / "out" / "summary_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.s3_manager = S3Manager(bucket_name="fincore-output-storage") if S3Manager else None
+        self.apiflash_key = os.getenv("APIFLASH_ACCESS_KEY")
 
     def _summarize_with_llm(self, md_content: str) -> str:
         """LLM을 사용하여 온라인 커뮤니티 스타일의 짧은 요약본을 생성합니다."""
@@ -92,30 +87,59 @@ class SummaryImageGenerator:
 
     def run(self):
         """메인 실행 흐름"""
-        print(f"🚀 '{self.service_name}' 요약 콘텐츠 생성을 시작합니다. (기준일: {self.ref_date})")
+        print(f"🚀 '{self.service_name}' 요약 이미지 생성을 시작합니다. (기준일: {self.ref_date})")
 
         if not self.md_path.exists():
             print(f"❌ 원본 뉴스레터 파일을 찾을 수 없습니다: {self.md_path}")
+            return
+        
+        if not self.apiflash_key:
+            print("❌ APIFLASH_ACCESS_KEY 환경변수가 설정되지 않았습니다. 이미지 생성을 건너뜁니다.")
             return
 
         md_content = self.md_path.read_text(encoding='utf-8')
         summary_md = self._summarize_with_llm(md_content)
         summary_html = self._wrap_in_html(summary_md)
 
-        # --- Plan B: Save MD and HTML files instead of generating an image ---
-        print("📝 요약본을 MD 및 HTML 파일로 저장 중입니다...")
+        print("📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다...")
+        
+        temp_html_path = None
+        try:
+            web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
+            temp_dir = PROJECT_ROOT / "static" / "temp_html"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            unique_filename = f"Signalist_{self.ref_date}_{uuid.uuid4()}.html"
+            temp_html_path = temp_dir / unique_filename
+            
+            with open(temp_html_path, 'w', encoding='utf-8') as f:
+                f.write(summary_html)
+            
+            public_url = f"{web_base_url}/static/temp_html/{unique_filename}"
+            print(f"🌍 생성된 임시 URL: {public_url}")
 
-        # MD 파일 저장
-        md_filename = f"Signalist_Summary_{self.ref_date}.md"
-        md_filepath = self.output_dir / md_filename
-        md_filepath.write_text(summary_md, encoding='utf-8')
-        print(f"✅ 로컬에 MD 파일 저장 완료: {md_filepath}")
+            params = {
+                "access_key": self.apiflash_key,
+                "url": public_url,
+                "format": "png", "fresh": True, "width": 800,
+            }
+            response = requests.get("https://api.apiflash.com/v1/urltoimage", params=params)
 
-        # HTML 파일 저장
-        html_filename = f"Signalist_Summary_{self.ref_date}.html"
-        html_filepath = self.output_dir / html_filename
-        html_filepath.write_text(summary_html, encoding='utf-8')
-        print(f"✅ 로컬에 HTML 파일 저장 완료: {html_filepath}")
+            if response.status_code == 200:
+                output_filename = f"Signalist_Summary_{self.ref_date}.png"
+                local_image_path = self.output_dir / output_filename
+                with open(local_image_path, "wb") as f:
+                    f.write(response.content)
+                print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+            else:
+                error_message = response.json().get("message", response.text)
+                raise Exception(f"ApiFlash 오류 (Status: {response.status_code}): {error_message}")
+        except Exception as e:
+            print(f"❌ 이미지 생성 프로세스 중 오류 발생: {e}")
+        finally:
+            if temp_html_path and temp_html_path.exists():
+                os.remove(temp_html_path)
+                print(f"🧹 임시 로컬 파일 삭제 완료: {temp_html_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

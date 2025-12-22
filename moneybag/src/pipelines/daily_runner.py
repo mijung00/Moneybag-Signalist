@@ -108,12 +108,17 @@ def run_routine(mode="morning"):
     # ---------------------------------------------------------
     # 2.5단계: 커뮤니티용 요약 이미지 생성
     # ---------------------------------------------------------
-    try:
-        print("\n2️⃣-2️⃣ 커뮤니티용 요약 이미지 생성 중...")
-        summary_image_generator = SummaryImageGenerator(mode=mode)
-        summary_image_generator.run()
-    except Exception as e:
-        print(f"⚠️ [Warning] 요약 이미지 생성 실패 (계속 진행): {e}")
+    # [개선] iceage와 동일하게 환경변수로 제어할 수 있도록 기능 추가
+    run_summary_image_output = os.getenv("RUN_SUMMARY_IMAGE_OUTPUT", "1") == "1"
+    if run_summary_image_output:
+        try:
+            print("\n2️⃣-2️⃣ 커뮤니티용 요약 이미지 생성 중...")
+            summary_image_generator = SummaryImageGenerator(mode=mode)
+            summary_image_generator.run()
+        except Exception as e:
+            print(f"⚠️ [Warning] 요약 이미지 생성 실패 (계속 진행): {e}")
+    else:
+        print("[INFO] RUN_SUMMARY_IMAGE_OUTPUT!=1 이므로 요약 이미지 생성은 스킵합니다.")
 
     # ---------------------------------------------------------
     # 3단계: 이메일 발송 (경로 전달 필수!)

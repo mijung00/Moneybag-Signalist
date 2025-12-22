@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 import markdown
 import requests
+import uuid
 # --- 경로 설정 ---
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -19,12 +20,6 @@ try:
 except ImportError:
     print("⚠️ [LLM Import Error] OpenAI 기능이 비활성화될 수 있습니다.")
     _chat = None
-
-try:
-    from common.s3_manager import S3Manager
-except ImportError:
-    print("⚠️ [S3 Import Error] S3 업로드 기능이 비활성화될 수 있습니다.")
-    S3Manager = None
 
 class SummaryImageGenerator:
     def __init__(self, mode: str):
@@ -41,7 +36,6 @@ class SummaryImageGenerator:
 
         self.output_dir = PROJECT_ROOT / "moneybag" / "data" / "out" / "summary_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.s3_manager = S3Manager(bucket_name="fincore-output-storage") if S3Manager else None
 
     def _find_latest_md(self) -> Path | None:
         """지정된 모드의 가장 최신 뉴스레터 MD 파일을 찾습니다."""
@@ -138,43 +132,51 @@ class SummaryImageGenerator:
 
         print("📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다...")
         
-        api_url = "https://api.apiflash.com/v1/urltoimage"
-        
-        # [수정] access_key는 URL 파라미터로, html 본문은 JSON payload로 분리
-        params = {
-            "access_key": self.apiflash_key
-        }
-        
-        json_payload = {
-            "html": summary_html,
-            "format": "png",
-            "fresh": True, # 캐시 방지
-            "width": 800, # HTML에 패딩이 있으므로 720(컨텐츠)+80(패딩)=800
-        }
-        
-        # API 호출 시 params와 json을 함께 사용
-        response = requests.post(api_url, params=params, json=json_payload)
+        temp_html_path = None
+        try:
+            # 1. 웹서버의 static 폴더에 임시 HTML 파일 생성
+            web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
+            temp_dir = PROJECT_ROOT / "static" / "temp_html"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            unique_filename = f"{self.ref_date}_{self.mode}_{uuid.uuid4()}.html"
+            temp_html_path = temp_dir / unique_filename
+            
+            with open(temp_html_path, 'w', encoding='utf-8') as f:
+                f.write(summary_html)
+            
+            public_url = f"{web_base_url}/static/temp_html/{unique_filename}"
+            print(f"🌍 생성된 임시 URL: {public_url}")
 
-        if response.status_code == 200:
-            output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
-            local_image_path = self.output_dir / output_filename
-            with open(local_image_path, "wb") as f:
-                f.write(response.content)
-            print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+            # 2. API 파라미터 구성 및 호출
+            params = {
+                "access_key": self.apiflash_key,
+                "url": public_url,
+                "format": "png", "fresh": True, "width": 800,
+            }
+            response = requests.get("https://api.apiflash.com/v1/urltoimage", params=params)
 
-            if self.s3_manager:
-                s3_key = f"moneybag/out/summary_images/{output_filename}"
-                print(f"☁️ S3에 업로드 중... (Key: {s3_key})")
-                if self.s3_manager.upload_file(local_file_path=str(local_image_path), s3_key=s3_key):
-                    print("✅ S3 업로드 완료!")
-                else:
-                    print("❌ S3 업로드 실패.")
-        else:
-            try:
-                error_message = response.json().get("message", response.text)
-            except requests.exceptions.JSONDecodeError:
-                error_message = response.text
-            print(f"❌ ApiFlash 오류 발생 (Status: {response.status_code}): {error_message}")
+            # 3. 결과 처리
+            if response.status_code == 200:
+                output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
+                local_image_path = self.output_dir / output_filename
+                with open(local_image_path, "wb") as f:
+                    f.write(response.content)
+                print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+            else:
+                try:
+                    error_message = response.json().get("message", response.text)
+                except requests.exceptions.JSONDecodeError:
+                    error_message = response.text
+                raise Exception(f"ApiFlash 오류 (Status: {response.status_code}): {error_message}")
+
+        except Exception as e:
+            print(f"❌ 이미지 생성 프로세스 중 오류 발생: {e}")
+        finally:
+            # 4. 임시 HTML 파일 삭제
+            if temp_html_path and temp_html_path.exists():
+                os.remove(temp_html_path)
+                print(f"🧹 임시 로컬 파일 삭제 완료: {temp_html_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
