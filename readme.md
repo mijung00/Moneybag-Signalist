@@ -49,7 +49,7 @@ AWS Elastic Beanstalk 환경에서 운용되며, 데이터 수집부터 분석, 
 * **Language**: Python 3.11+
 * **Data Processing**: Pandas, NumPy
 * **AI/LLM**: OpenAI API (GPT-4o) for News summarization & Sentiment analysis
-* **Image Generation**: `html2image` with headless Chromium
+* **Image Generation**: **ApiFlash API** (HTML/CSS to Image)
 * **Notification**: SendGrid (Newsletter), Slack Webhook (Monitoring)
 
 ---

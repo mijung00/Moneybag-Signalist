@@ -4,8 +4,7 @@ import sys
 import re
 from pathlib import Path
 import markdown
-from html2image import Html2Image
-
+import requests
 # --- 경로 설정 ---
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -38,14 +37,10 @@ class SummaryImageGenerator:
             self.ref_date = date_str_match.group(1).replace('.', '-') if date_str_match else "latest"
         else:
             self.ref_date = "unknown"
+        self.apiflash_key = os.getenv("APIFLASH_ACCESS_KEY")
 
         self.output_dir = PROJECT_ROOT / "moneybag" / "data" / "out" / "summary_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        # [수정] 커뮤니티 권장: 실행 경로 명시 및 샌드박스 비활성화
-        self.hti = Html2Image(
-            output_path=str(self.output_dir),
-            custom_flags=['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage', '--single-process']
-        )
         self.s3_manager = S3Manager(bucket_name="fincore-output-storage") if S3Manager else None
 
     def _find_latest_md(self) -> Path | None:
@@ -128,24 +123,50 @@ class SummaryImageGenerator:
         if not self.md_path or not self.md_path.exists():
             print(f"❌ 원본 뉴스레터 파일을 찾을 수 없습니다. (모드: {self.mode})")
             return
+        
+        if not self.apiflash_key:
+            print("❌ APIFLASH_ACCESS_KEY 환경변수가 설정되지 않았습니다. 이미지 생성을 건너뜁니다.")
+            return
 
         md_content = self.md_path.read_text(encoding='utf-8')
         summary_md = self._summarize_with_llm(md_content)
         summary_html = self._wrap_in_html(summary_md)
 
-        print("📸 요약본을 이미지로 변환 중입니다...")
-        output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
-        self.hti.screenshot(html_str=summary_html, save_as=output_filename, size=(800, 1))
-        local_image_path = self.output_dir / output_filename
-        print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+        print("📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다...")
+        
+        api_url = "https://api.apiflash.com/v1/urltoimage"
+        
+        # POST 요청용 JSON 데이터 구성
+        payload = {
+            "access_key": self.apiflash_key,
+            "html": summary_html,
+            "format": "png",
+            "fresh": True, # 캐시 방지
+            "width": 800, # HTML에 패딩이 있으므로 720(컨텐츠)+80(패딩)=800
+        }
+        
+        response = requests.post(api_url, json=payload)
 
-        if self.s3_manager:
-            s3_key = f"moneybag/out/summary_images/{output_filename}"
-            print(f"☁️ S3에 업로드 중... (Key: {s3_key})")
-            if self.s3_manager.upload_file(local_file_path=str(local_image_path), s3_key=s3_key):
-                print("✅ S3 업로드 완료!")
-            else:
-                print("❌ S3 업로드 실패.")
+        if response.status_code == 200:
+            output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
+            local_image_path = self.output_dir / output_filename
+            with open(local_image_path, "wb") as f:
+                f.write(response.content)
+            print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+
+            if self.s3_manager:
+                s3_key = f"moneybag/out/summary_images/{output_filename}"
+                print(f"☁️ S3에 업로드 중... (Key: {s3_key})")
+                if self.s3_manager.upload_file(local_file_path=str(local_image_path), s3_key=s3_key):
+                    print("✅ S3 업로드 완료!")
+                else:
+                    print("❌ S3 업로드 실패.")
+        else:
+            try:
+                error_message = response.json().get("message", response.text)
+            except requests.exceptions.JSONDecodeError:
+                error_message = response.text
+            print(f"❌ ApiFlash 오류 발생 (Status: {response.status_code}): {error_message}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

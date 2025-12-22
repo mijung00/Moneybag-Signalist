@@ -13,4 +13,3 @@ python-dotenv
 sendgrid
 itsdangerous
 markdown
-html2image

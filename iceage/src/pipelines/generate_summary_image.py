@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 import markdown
 from html2image import Html2Image
-
 # --- 경로 설정 ---
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -33,11 +32,6 @@ class SummaryImageGenerator:
         self.md_path = PROJECT_ROOT / "iceage" / "out" / f"Signalist_Daily_{self.ref_date}.md"
         self.output_dir = PROJECT_ROOT / "iceage" / "out" / "summary_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        # [수정] 커뮤니티 권장: 실행 경로 명시 및 샌드박스 비활성화
-        self.hti = Html2Image(
-            output_path=str(self.output_dir),            
-            custom_flags=['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage', '--single-process']
-        )
         self.s3_manager = S3Manager(bucket_name="fincore-output-storage") if S3Manager else None
 
     def _summarize_with_llm(self, md_content: str) -> str:
@@ -98,7 +92,7 @@ class SummaryImageGenerator:
 
     def run(self):
         """메인 실행 흐름"""
-        print(f"🚀 '{self.service_name}' 요약 이미지 생성을 시작합니다. (기준일: {self.ref_date})")
+        print(f"🚀 '{self.service_name}' 요약 콘텐츠 생성을 시작합니다. (기준일: {self.ref_date})")
 
         if not self.md_path.exists():
             print(f"❌ 원본 뉴스레터 파일을 찾을 수 없습니다: {self.md_path}")
@@ -108,19 +102,20 @@ class SummaryImageGenerator:
         summary_md = self._summarize_with_llm(md_content)
         summary_html = self._wrap_in_html(summary_md)
 
-        print("📸 요약본을 이미지로 변환 중입니다...")
-        output_filename = f"Signalist_Summary_{self.ref_date}.png"
-        self.hti.screenshot(html_str=summary_html, save_as=output_filename, size=(800, 1))
-        local_image_path = self.output_dir / output_filename
-        print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+        # --- Plan B: Save MD and HTML files instead of generating an image ---
+        print("📝 요약본을 MD 및 HTML 파일로 저장 중입니다...")
 
-        if self.s3_manager:
-            s3_key = f"iceage/out/summary_images/{output_filename}"
-            print(f"☁️ S3에 업로드 중... (Key: {s3_key})")
-            if self.s3_manager.upload_file(local_file_path=str(local_image_path), s3_key=s3_key):
-                print("✅ S3 업로드 완료!")
-            else:
-                print("❌ S3 업로드 실패.")
+        # MD 파일 저장
+        md_filename = f"Signalist_Summary_{self.ref_date}.md"
+        md_filepath = self.output_dir / md_filename
+        md_filepath.write_text(summary_md, encoding='utf-8')
+        print(f"✅ 로컬에 MD 파일 저장 완료: {md_filepath}")
+
+        # HTML 파일 저장
+        html_filename = f"Signalist_Summary_{self.ref_date}.html"
+        html_filepath = self.output_dir / html_filename
+        html_filepath.write_text(summary_html, encoding='utf-8')
+        print(f"✅ 로컬에 HTML 파일 저장 완료: {html_filepath}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
