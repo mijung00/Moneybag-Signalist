@@ -284,23 +284,22 @@ def index():
                     new_moneybag = max(existing_user['is_moneybag'], sub_moneybag)
                     sql = "UPDATE subscribers SET is_signalist=%s, is_moneybag=%s, is_active=1 WHERE id=%s"
                     cursor.execute(sql, (new_signalist, new_moneybag, existing_user['id']))
-                    flash("구독 정보가 업데이트되었습니다. ✅", "success")
+                    flash("구독 정보가 업데이트되었습니다. 확인 이메일을 곧 보내드립니다. 🚀", "success")
                 else:
                     # 신규 유저: 새로 추가
                     token = secrets.token_urlsafe(16)
                     sql = "INSERT INTO subscribers (email, name, unsubscribe_token, is_signalist, is_moneybag) VALUES (%s, %s, %s, %s, %s)"
                     cursor.execute(sql, (email, name, token, sub_signalist, sub_moneybag))
-                    flash(f"{name or '독자'}님, 구독해주셔서 감사합니다! 🎉", "success")
+                    flash(f"{name or '독자'}님, 구독해주셔서 감사합니다! 환영 이메일을 곧 보내드립니다. 🚀", "success")
                 
                 # [중요] 이메일 발송 전에 먼저 커밋해서 구독 정보 저장 확실히 하기
                 conn.commit()
 
-                # [수정] 신규/기존 구독자에게는 전용 '환영 메일' 발송 로직 사용
+                # 신규 구독 서비스에 대한 환영 메일 발송
                 if sub_signalist:
                     Thread(target=send_welcome_email_async, args=('iceage', email)).start()
                 if sub_moneybag:
                     Thread(target=send_welcome_email_async, args=('moneybag', email)).start()
-                flash("구독해주셔서 감사합니다! 최신 리포트를 메일로 보내드렸습니다. 🚀", "success")
 
         except Exception as e:
             print(f"[DB Error] {e}")
