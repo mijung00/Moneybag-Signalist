@@ -3,6 +3,7 @@ import os
 import sys
 import re
 from pathlib import Path
+import time
 import markdown
 import requests
 import uuid
@@ -147,6 +148,10 @@ class SummaryImageGenerator:
             
             public_url = f"{web_base_url}/static/temp_html/{unique_filename}"
             print(f"🌍 생성된 임시 URL: {public_url}")
+
+            # [개선] 웹서버가 파일을 인식할 시간을 벌어주기 위해 10초 대기
+            print("⏳ ApiFlash가 URL을 인식하도록 10초 대기합니다...")
+            time.sleep(10)
 
             # 2. API 파라미터 구성 및 호출
             params = {
