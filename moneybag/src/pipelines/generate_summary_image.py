@@ -109,6 +109,8 @@ class SummaryImageGenerator:
         </head>
         <body>
             {body_html}
+            <p>&nbsp;</p>
+            <p>&nbsp;</p>
         </body>
         </html>
         """
