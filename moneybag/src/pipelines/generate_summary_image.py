@@ -128,6 +128,10 @@ class SummaryImageGenerator:
             print("❌ APIFLASH_ACCESS_KEY 환경변수가 설정되지 않았습니다. 이미지 생성을 건너뜁니다.")
             return
 
+        # [디버깅] 실제로 사용하려는 키가 무엇인지 안전하게 로깅
+        key_to_log = f"{self.apiflash_key[:4]}...{self.apiflash_key[-4:]}" if self.apiflash_key and len(self.apiflash_key) > 8 else "Invalid or short key"
+        print(f"🔑 Using ApiFlash Key: {key_to_log}")
+
         md_content = self.md_path.read_text(encoding='utf-8')
         summary_md = self._summarize_with_llm(md_content)
         summary_html = self._wrap_in_html(summary_md)
