@@ -140,16 +140,20 @@ class SummaryImageGenerator:
         
         api_url = "https://api.apiflash.com/v1/urltoimage"
         
-        # POST 요청용 JSON 데이터 구성
-        payload = {
-            "access_key": self.apiflash_key,
+        # [수정] access_key는 URL 파라미터로, html 본문은 JSON payload로 분리
+        params = {
+            "access_key": self.apiflash_key
+        }
+        
+        json_payload = {
             "html": summary_html,
             "format": "png",
             "fresh": True, # 캐시 방지
             "width": 800, # HTML에 패딩이 있으므로 720(컨텐츠)+80(패딩)=800
         }
         
-        response = requests.post(api_url, json=payload)
+        # API 호출 시 params와 json을 함께 사용
+        response = requests.post(api_url, params=params, json=json_payload)
 
         if response.status_code == 200:
             output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
