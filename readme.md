@@ -61,6 +61,7 @@ This project relies on environment variables for critical configurations. These 
 *   `WEB_BASE_URL`: The public base URL of the website (e.g., `https://www.fincore.co.kr`). Used for generating absolute links in emails.
 *   `APIFLASH_ACCESS_KEY`: API key for the ApiFlash service.
 *   `OPENAI_API_KEY`: API key for OpenAI services.
+*   `MORALIS_API_KEY`: API key for the Moralis service (for tracking large crypto transactions).
 *   `SENDGRID_API_KEY`: API key for SendGrid email service.
 *   `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`: Database connection details, preferably managed via AWS Secrets Manager.
 *   `SECRET_KEY`: A secret key for signing tokens, used for unsubscribe links.

@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import textwrap
 from datetime import datetime
 from pathlib import Path
@@ -7,15 +8,20 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 
 # [NEW] 고래 이동 추적을 위한 트래커 임포트
-try:
-    from moneybag.src.analyzers.whale_alert_tracker import WhaleAlertTracker
+try: # [수정] Moralis 트래커를 사용하도록 변경
+    from moneybag.src.analyzers.moralis_tracker import MoralisTracker
 except ImportError:
-    WhaleAlertTracker = None
+    MoralisTracker = None
 
 # [설정] 경로 및 디렉토리 세팅
 BASE_DIR = Path(__file__).resolve().parents[3]
 ASSET_DIR = BASE_DIR / "moneybag" / "assets"
 DATA_DIR = BASE_DIR / "moneybag" / "data" / "out"
+# [수정] .env 파일 로드 로직 추가
+sys.path.append(str(BASE_DIR))
+from common.env_loader import load_env
+load_env(BASE_DIR)
+
 OUTPUT_DIR = DATA_DIR / "cardnews"
 
 # --- [NEW] 다크모드 색상 팔레트 ---
@@ -74,94 +80,107 @@ class CardNewsFactory:
     # --------------------------------------------------------------------------
     # [핵심 1] MD 파일 파싱 (대대적 개선)
     # --------------------------------------------------------------------------
-    def parse_markdown(self, file_path):
+    def parse_markdown(self, file_path: Path) -> dict:
+        """
+        [수정] daily_newsletter.py의 출력 형식에 맞춰 파서를 전면 수정합니다.
+        """
         print(f"📂 파일 파싱 시작: {file_path.name}")
-        with open(file_path, 'r', encoding='utf-8') as f: lines = f.readlines()
-        md_text = "\n".join(lines)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            md_text = f.read()
 
-        fname = os.path.basename(file_path)
-        parts = fname.replace("SecretNote_", "").replace(".md", "").split("_")
-        mode = parts[0].upper() if parts else "MORNING"
-        raw_date = parts[1] if len(parts) > 1 else datetime.now().strftime("%Y-%m-%d")
-        date = raw_date.replace(".", "-")
+        # [Fallback] 파일명에서 날짜와 모드 먼저 추출
+        fname_match = re.search(r"SecretNote_(\w+)_(\d{4}\.\d{2}\.\d{2})", file_path.name)
+        mode_from_fname, date_from_fname = ("unknown", "nodate")
+        if fname_match:
+            mode_from_fname = fname_match.group(1).upper()
+            date_from_fname = fname_match.group(2).replace('.', '-')
 
         data = {
-            "mode": mode,
-            "date": date,
-            "headline": "웨일 헌터의 시크릿 노트",
-            "dashboard_metrics": [],
-            "scalping_map": [],
+            "headline": "",
+            "commander_name": "",
+            "commander_quote": "",
+            "dashboard_items": [],
+            "scalping_map_items": [],
             "strategies": [],
             "news": [],
-            "commander": "Unknown Bot",
-            "monologue": "",
-            "sentiment": 50,
+            "date": date_from_fname, # Fallback 값으로 초기화
+            "mode": mode_from_fname, # Fallback 값으로 초기화
         }
 
-        # 정규식을 사용하여 각 섹션별 내용 추출
-        def get_section(name):
-            match = re.search(rf"## \d+\. .*?{name}.*?\n(.*?)(?=\n## \d+\. |\Z)", md_text, re.S)
-            return match.group(1).strip() if match else ""
+        # 1. 헤드라인, 날짜, 모드, 사령관 이름 추출 (본문 우선)
+        # [수정] LLM의 유연한 출력에 대응하기 위해 공백 처리를 강화한 정규식
+        header_match = re.search(r'# 🐋 \[(.*?)\]\s*날짜:\s*(.*?)\s*\|\s*시간:\s*(.*?)\s*\|\s*사령관:\s*(.*?)\s*\n', md_text, re.S)
+        if header_match:
+            data['headline'] = header_match.group(1).strip()
+            data['date'] = header_match.group(2).strip().replace('.', '-')
+            data['mode'] = header_match.group(3).strip()
+            data['commander_name'] = header_match.group(4).strip()
+        else:
+            # 헤더 파싱 실패 시, 헤드라인이라도 찾아본다.
+            headline_match_fallback = re.search(r'# 🐋 (.*)', md_text)
+            if headline_match_fallback:
+                data['headline'] = headline_match_fallback.group(1).strip().replace('[','').replace(']','')
 
-        # 헤드라인, 사령관
-        headline_match = re.search(r"# 🐋 \[(.*?)\]", md_text)
-        if headline_match: data['headline'] = headline_match.group(1)
-        commander_match = re.search(r"사령관: (\w+)", md_text)
-        if commander_match: data['commander'] = commander_match.group(1)
+        # 섹션 분리
+        sections = re.split(r'\n## \d+\. ', md_text)
+        
+        for section in sections[1:]:
+            # 사령관 브리핑 (독백) & 대시보드
+            if "헌터의 대시보드" in section:
+                quote_match = re.search(r'> \*\*🗨️ 헌터의 독백:\*\* (.*?)(?=\n\n\*\*\[메이저\]\*\*|\n\n\*\*\[알트/밈\]\*\*|\Z)', section, re.S)
+                if quote_match:
+                    data['commander_quote'] = quote_match.group(1).strip()
 
-        # 대시보드 & 독백
-        dashboard_content = get_section("대시보드")
-        if dashboard_content:
-            monologue_match = re.search(r"헌터의 독백:\s*(.*)", dashboard_content, re.S)
-            if monologue_match: data['monologue'] = self.clean_text(monologue_match.group(1))
-            
-            sentiment_match = re.search(r"\*\*(\d+)\*\*", dashboard_content)
-            if sentiment_match: data['sentiment'] = int(sentiment_match.group(1))
+                sentiment_match = re.search(r'현재: (.*?)\n.*?\*\*(\d+)\*\*', section, re.S)
+                if sentiment_match:
+                    data['dashboard_items'].append({"key": "고래 심리 지수", "value": f"{sentiment_match.group(1).strip()} ({sentiment_match.group(2).strip()})"})
 
-            table_matches = re.findall(r"\| \*\*(\w+)\*\* \|(.*?)\|(.*?)\|(.*?)\|(.*)\|\n", dashboard_content)
-            for match in table_matches:
-                data['dashboard_metrics'].append({
-                    "coin": match[0], "price": self.clean_text(match[1]),
-                    "kimp": self.clean_text(match[2]), "funding": self.clean_text(match[3]),
-                    "volume": self.clean_text(match[4])
-                })
+                # [수정] 대시보드 테이블 파싱 로직 강화
+                dashboard_table_match = re.search(r'\|\s*코인\s*\|.*?\|\n\|---.*?---\|\n(.*?)(?=\n\n|\Z)', section, re.S)
+                if dashboard_table_match:
+                    table_content = dashboard_table_match.group(1)
+                    rows = re.findall(r'\| \*\*(.*?)\*\* \|(.*?)\|(.*?)\|(.*?)\|(.*)\|\n', table_content)
+                    for coin, price, kimp, funding, _ in rows:
+                        data['dashboard_items'].append({"key": coin.strip(), "value": price.strip().split('<br>')[0]})
+                        data['dashboard_items'].append({"key": f"{coin.strip()} 김프", "value": kimp.strip()})
+                        data['dashboard_items'].append({"key": f"{coin.strip()} 펀딩비", "value": funding.strip()})
 
-        # 스캘핑 맵
-        scalping_content = get_section("단타 전술")
-        if scalping_content:
-            table_matches = re.findall(r"\| \*\*(.*?)\*\* \|(.*?)\|(.*?)\|(.*?)\|(.*)\|\n", scalping_content)
-            for match in table_matches:
-                data['scalping_map'].append({
-                    "coin": match[0], "price": self.clean_text(match[1]),
-                    "support": self.clean_text(match[2]), "resistance": self.clean_text(match[3]),
-                    "trend": self.clean_text(match[4])
-                })
 
-        # 추천 전략
-        verdict_content = get_section("최종 결론")
-        if verdict_content:
-            strategy_matches = re.findall(r"\*\*(\d)\. \S+ (.*?)\*\*\n\s*-\s*\"(.*?)\"\n\s*-\s*가이드:\s*\((.*?)\)", verdict_content, re.S)
-            for match in strategy_matches:
-                data['strategies'].append({
-                    "name": match[1], "appeal": match[2], "guide": match[3]
-                })
-
-        # 뉴스
-        news_content = get_section("글로벌 첩보")
-        if news_content:
-            news_blocks = re.split(r'\n### \d+\. ', news_content)
-            for block in news_blocks:
-                if not block.strip(): continue
-                title_match = re.search(r"\[(.*?)\]", block)
-                fact_match = re.search(r"🔍 \*\*팩트:\*\* (.*?)\n", block, re.S)
-                view_match = re.search(r"👁️ \*\*헌터의 뷰:\*\* (.*?)\n", block, re.S)
-                if title_match:
-                    data['news'].append({
-                        "title": title_match.group(1).strip(),
-                        "fact": fact_match.group(1).strip() if fact_match else "",
-                        "view": view_match.group(1).strip() if view_match else ""
+            # 스캘핑 맵 (단타 전술)
+            elif "단타 전술" in section:
+                rows = re.findall(r'\| \*\*(.*?)\*\* \|.*?\|(.*?)\|(.*?)\|.*\n', section)
+                for coin, support, resistance in rows:
+                    data['scalping_map_items'].append({
+                        "coin": coin.strip(),
+                        "resistance": resistance.strip().replace('🔴', '').replace('**', '').strip(),
+                        "support": support.strip().replace('🟢', '').replace('**', '').strip()
                     })
 
+            # 전략 (최종 결론)
+            elif "최종 결론" in section:
+                # [수정] 가이드 내용이 여러 줄이거나 괄호가 없는 경우도 파싱하도록 정규식 수정
+                strat_blocks = re.findall(r'\*\*(?:\d\. 🥇|🥈|🥉)\s*(.*?)\*\*\s*\n\s*-\s*"(.*?)"\s*\n\s*-\s*가이드:\s*(.*?)(?=\n\s*\*\*|\Z)', section, re.S)
+                for name, appeal, guide_text in strat_blocks:
+                    data['strategies'].append({
+                        "name": name.strip(),
+                        "appeal": appeal.strip(),
+                        "guide": guide_text.strip()
+                    })
+
+            # 뉴스 (글로벌 첩보)
+            elif "글로벌 첩보" in section:
+                news_items = re.split(r'\n### \d+\. ', section)[1:]
+                for item in news_items:
+                    # [수정] 뉴스 제목, 팩트, 헌터의 뷰 모두 추출
+                    title_match = re.search(r'\[(.*?)\]', item) # 뉴스 제목
+                    fact_match = re.search(r'> 🔍 \*\*팩트:\*\* (.*?)\n', item, re.S) # 뉴스 요약 (팩트)
+                    view_match = re.search(r'> 👁️ \*\*헌터의 뷰:\*\* (.*?)(?=\n\*Original:|\Z)', item, re.S) # 헌터의 뷰
+                    if title_match and fact_match and view_match:
+                        data['news'].append({
+                            "title": title_match.group(1).strip(),
+                            "summary": fact_match.group(1).strip(), # 팩트가 뉴스 요약
+                            "hunter_view": view_match.group(1).strip() # 헌터의 뷰
+                        })
         return data
 
     def clean_text(self, text):
@@ -190,103 +209,108 @@ class CardNewsFactory:
         img.save(save_path)
 
     def create_commander_briefing_card(self, data, save_path):
+        """[개선] 좌측 정렬 및 상단 여백 추가"""
         img = self._create_base_image(self.selected_body_bg)
         draw = ImageDraw.Draw(img)
-        commander = data.get('commander', 'System')
-        monologue = data.get('monologue', '시장을 관망합니다.')
+        commander = data.get('commander_name', 'System')
+        quote = data.get('commander_quote', '시장을 관망합니다.')
 
-        draw.text((80, 100), f"COMMANDER'S BRIEFING", font=self.font_header, fill=C_TEXT_DIM)
-        draw.text((80, 160), f"“{commander}”", font=self.font_title, fill=C_ACCENT_PURPLE)
+        y_start = 200 # 시작 위치를 아래로 내림
+        draw.text((80, y_start), f"COMMANDER'S BRIEFING", font=self.font_header, fill=C_TEXT_DIM)
+        draw.text((80, y_start + 70), f"“{commander}”", font=self.font_title, fill=C_ACCENT_PURPLE)
         
-        y_text = 350
-        wrapped_text = textwrap.wrap(f"{monologue}", width=28)
+        y_text = y_start + 220
+        wrapped_text = textwrap.wrap(f"{quote}", width=25)
         for line in wrapped_text:
-            self._draw_text_centered(draw, line, self.font_body, 540, y_text, C_TEXT_LIGHT)
+            draw.text((100, y_text), line, font=self.font_body, fill=C_TEXT_LIGHT)
             y_text += 60
 
         img.save(save_path)
 
     def create_whale_dashboard_card(self, data, save_path):
+        """[개선] 리스트 형식 파싱 및 각주 추가"""
         img = self._create_base_image(self.selected_body_bg)
         draw = ImageDraw.Draw(img)
         draw.text((80, 100), "WHALE DASHBOARD", font=self.font_header, fill=C_TEXT_DIM)
 
-        # 1. 고래 심리 지수
-        sentiment = data.get('sentiment', 50)
-        s_color = C_ACCENT_RED if sentiment < 45 else (C_ACCENT_GREEN if sentiment > 55 else C_TEXT_DIM)
-        s_text = "공포" if sentiment < 45 else ("탐욕" if sentiment > 55 else "중립")
-        draw.text((100, 200), "고래 심리 지수", font=self.font_accent, fill=C_TEXT_LIGHT)
-        self._draw_gauge(draw, (100, 260, 880, 40), sentiment, s_color)
-        self._draw_text_centered(draw, f"{s_text} ({sentiment})", self.font_body, 540, 320, s_color)
+        y = 220
+        # [수정] 고래 심리 지수 게이지 렌더링
+        sentiment_value = 0
+        for item in data.get('dashboard_items', []):
+            key = item.get('key', '')
+            value = item.get('value', '')
+            if "고래 심리 지수" in key:
+                sentiment_match = re.search(r'\((\d+)\)', value)
+                if sentiment_match:
+                    sentiment_value = int(sentiment_match.group(1))
+                    sentiment_status = value.split('(')[0].strip()
+                    
+                    draw.text((100, y), "고래 심리 지수", font=self.font_accent, fill=C_TEXT_LIGHT)
+                    self._draw_gauge(draw, (100, y + 50, 880, 40), sentiment_value, C_ACCENT_PURPLE)
+                    self._draw_text_centered(draw, f"{sentiment_status} ({sentiment_value})", self.font_body, 540, y + 100, C_ACCENT_PURPLE)
+                    y += 180 # 게이지 공간 확보
+                continue
+            # [수정] 아래 2열 배치 로직으로 통합되었으므로 이 부분의 개별 항목 그리기는 제거합니다.
 
-        # 2. 주요 지표 (김프, 펀딩비)
-        y = 450
-        for metric in data.get('dashboard_metrics', []):
-            if metric['coin'] not in ['BTC', 'ETH']: continue
-            
-            draw.text((100, y), metric['coin'], font=self.font_accent, fill=C_TEXT_LIGHT)
-            
-            # 김프
-            kimp_val = float(re.findall(r"[-+]?\d*\.\d+|\d+", metric['kimp'])[0])
-            kimp_icon = "🔥" if kimp_val > 2.5 else ("🧊" if kimp_val < 0 else "")
-            draw.text((400, y), f"김프: {kimp_val:.2f}% {kimp_icon}", font=self.font_body, fill=C_TEXT_DIM)
+        # [수정] 대시보드 항목이 너무 많을 경우를 대비하여 2열로 배치
+        items_to_display = [item for item in data.get('dashboard_items', []) if "고래 심리 지수" not in item['key']]
+        if items_to_display:
+            col1_x = 100
+            col2_x = 550
+            current_y = y
+            for i, item in enumerate(items_to_display):
+                x_pos = col1_x if i % 2 == 0 else col2_x
+                key = item.get('key', '')
+                value = item.get('value', '')
+                color = C_TEXT_LIGHT
+                if "김프" in key: color = C_ACCENT_GREEN
+                elif "펀딩비" in key: color = C_ACCENT_RED
+                draw.text((x_pos, current_y), f"• {key}: {value}", font=self.font_body, fill=color)
+                if i % 2 == 1: current_y += 70
+            if len(items_to_display) % 2 == 0: current_y += 70
 
-            # 펀딩비
-            try:
-                fund_val = float(re.findall(r"[-+]?\d*\.\d+|\d+", metric['funding'])[0])
-                fund_text = "롱 우세" if fund_val > 0.01 else ("숏 우세" if fund_val < -0.01 else "중립")
-                fund_color = C_ACCENT_GREEN if fund_val > 0 else C_ACCENT_RED
-                draw.text((700, y), f"펀딩비: {fund_text}", font=self.font_body, fill=fund_color)
-            except:
-                draw.text((700, y), f"펀딩비: -", font=self.font_body, fill=C_TEXT_DIM)
-            
-            y += 100
+        # [수정] 고래 심리 지수 각주를 LLM 프롬프트에서 직접 생성하도록 변경했으므로, 여기서는 제거
         img.save(save_path)
 
     def create_whale_tracker_card(self, save_path):
-        """[수정] Whale Alert API를 직접 호출하여 실제 고래 거래 내역을 시각화합니다."""
+        """[수정] Moralis API를 사용하여 실제 고래 거래 내역을 시각화합니다."""
         img = self._create_base_image(self.selected_body_bg)
         draw = ImageDraw.Draw(img)
         draw.text((80, 100), "WHALE TRACKER", font=self.font_header, fill=C_TEXT_DIM)
-
-        api_key = os.getenv("WHALE_ALERT_API_KEY")
-        if not api_key:
-            self._draw_text_centered(draw, "Whale Alert API 키 없음", self.font_body, 540, 500, C_TEXT_DIM)
+        draw.text((80, 160), "최근 12시간 $1M 이상 대규모 거래", font=self.font_small, fill=C_TEXT_DIM)
+        if not MoralisTracker:
+            self._draw_text_centered(draw, "Moralis 트래커 로드 실패", self.font_body, 540, 500, C_TEXT_DIM)
             img.save(save_path)
             return
 
+        tracker = MoralisTracker()
         try:
-            response = requests.get(
-                "https://api.whale-alert.io/v1/transactions",
-                params={'api_key': api_key, 'limit': 5, 'min_value': 500000}, # 50만달러 이상 거래만
-                timeout=15
-            )
-            response.raise_for_status()
-            data = response.json()
+            data = tracker.get_large_transactions(limit=5)
             txs = data.get('transactions', [])
         except Exception as e:
-            print(f"⚠️ Whale Alert API 호출 실패: {e}")
+            print(f"⚠️ Moralis API 호출 실패: {e}")
             self._draw_text_centered(draw, "고래 추적 데이터 로딩 실패", self.font_body, 540, 500, C_TEXT_DIM)
             img.save(save_path)
             return
 
         if not txs:
-            self._draw_text_centered(draw, "최근 고래 움직임 없음", self.font_body, 540, 500, C_TEXT_DIM)
+            self._draw_text_centered(draw, "최근 대규모 움직임 없음", self.font_body, 540, 500, C_TEXT_DIM)
             img.save(save_path)
             return
 
         y = 250
-        for tx in txs:
+        for tx in txs[:5]: # 최대 5개만 표시
             amount_usd = tx.get('amount_usd', 0)
-            amount_usd_str = f"${amount_usd:,.0f}"
+            symbol = tx.get('symbol', '')
+            amount_usd_str = f"{symbol} ${amount_usd:,.0f}"
             
-            from_owner = tx['from'].get('owner', 'Unknown').capitalize()
-            to_owner = tx['to'].get('owner', 'Unknown').capitalize()
+            from_owner = tx['from'].get('owner', 'Unknown Wallet')
+            to_owner = tx['to'].get('owner', 'Unknown Wallet')
 
             direction, icon, color = "이체", "↔️", C_TEXT_DIM
-            if tx['to']['owner_type'] == 'exchange':
+            if tx['to'].get('owner_type') == 'exchange' and 'Exchange' in to_owner:
                 direction, icon, color = "입금", "➡️", C_ACCENT_GREEN
-            elif tx['from']['owner_type'] == 'exchange':
+            elif tx['from'].get('owner_type') == 'exchange' and 'Exchange' in from_owner:
                 direction, icon, color = "출금", "⬅️", C_ACCENT_RED
             
             line1 = f"{icon} {amount_usd_str} 규모"
@@ -299,98 +323,81 @@ class CardNewsFactory:
         img.save(save_path)
 
     def create_scalping_map_card(self, data, save_path):
+        """[개선] 새로운 MD 형식에 맞춰 파싱 및 렌더링"""
         img = self._create_base_image(self.selected_body_bg)
         draw = ImageDraw.Draw(img)
         draw.text((80, 100), "SCALPING MAP", font=self.font_header, fill=C_TEXT_DIM)
 
         y = 250
-        for item in data.get('scalping_map', [])[:3]:
-            try:
-                price = float(item['price'].replace('$', '').replace(',', ''))
-                support = float(item['support'].replace('$', '').replace(',', ''))
-                resistance = float(item['resistance'].replace('$', '').replace(',', ''))
-            except ValueError:
-                continue
+        items = data.get('scalping_map_items', [])
+        if not items:
+            self._draw_text_centered(draw, "데이터 없음", self.font_body, 540, 500, C_TEXT_DIM)
+            img.save(save_path)
+            return
 
-            draw.text((100, y), item['coin'], font=self.font_accent, fill=C_TEXT_LIGHT)
+        for item in items[:3]:
+            coin = item.get('coin', '???')
+            resistance = item.get('resistance', '0')
+            support = item.get('support', '0')
 
-            chart_box_y = y + 50
-            chart_height = 80
-            total_range = resistance - support if resistance > support else 1
-            
-            # 저항선
-            draw.line([(100, chart_box_y), (980, chart_box_y)], fill=C_ACCENT_RED, width=3)
-            draw.text((100, chart_box_y - 30), f"저항 ${resistance:,.0f}", font=self.font_mini, fill=C_ACCENT_RED)
-            # 지지선
-            draw.line([(100, chart_box_y + chart_height), (980, chart_box_y + chart_height)], fill=C_ACCENT_GREEN, width=3)
-            draw.text((100, chart_box_y + chart_height + 5), f"지지 ${support:,.0f}", font=self.font_mini, fill=C_ACCENT_GREEN)
-            
-            # 현재가 위치
-            price_pos_y = (chart_box_y + chart_height) - ((price - support) / total_range) * chart_height
-            price_pos_y = max(chart_box_y, min(price_pos_y, chart_box_y + chart_height))
-            draw.line([(100, price_pos_y), (980, price_pos_y)], fill=C_TEXT_DIM, width=2, dash=[5, 5])
-            draw.text((900, price_pos_y - 15), f"현재 ${price:,.0f}", font=self.font_mini, fill=C_TEXT_LIGHT)
+            draw.text((100, y), coin, font=self.font_accent, fill=C_TEXT_LIGHT)
+            draw.text((400, y), f"저항: {resistance}", font=self.font_body, fill=C_ACCENT_RED)
+            draw.text((700, y), f"지지: {support}", font=self.font_body, fill=C_ACCENT_GREEN)
+            y += 100
 
-            y += 200
         img.save(save_path)
 
-    def create_strategy_card(self, strat, idx, news_list, save_path):
+    def create_strategy_card(self, strat, idx, save_path):
+        """[개선] 새로운 MD 형식에 맞춰 파싱 및 렌더링"""
         img = self._create_base_image(self.selected_body_bg)
         draw = ImageDraw.Draw(img)
 
-        draw.text((80, 100), f"RECOMMENDED STRATEGY #{idx}", font=self.font_header, fill=C_TEXT_DIM)
-        draw.text((80, 180), strat['name'], font=self.font_title, fill=C_ACCENT_PURPLE)
+        draw.text((80, 100), f"AI STRATEGY #{idx}", font=self.font_header, fill=C_TEXT_DIM)
+        
+        name = strat.get('name', '전략 이름 없음')
+        appeal = strat.get('appeal', '매력 어필 없음')
+        guide = strat.get('guide', '가이드 없음')
+
+        draw.text((80, 180), name, font=self.font_title, fill=C_ACCENT_PURPLE)
 
         y = 300
-        wrapped_appeal = textwrap.wrap(f"“{strat['appeal']}”", width=30)
-        for line in wrapped_appeal:
-            draw.text((100, y), line, font=self.font_body, fill=C_TEXT_LIGHT)
+        for line in textwrap.wrap(f"\"{appeal}\"\n\n가이드: {guide}", width=35):
+            draw.text((100, y), line, font=self.font_body, fill=C_TEXT_DIM)
             y += 50
-
-        y += 50
-        draw.rectangle((80, y, 1000, y + 250), fill=C_BG_CARD)
-        guide_y = y + 30
-        draw.text((110, guide_y), "가이드:", font=self.font_accent, fill=C_TEXT_DIM)
-        guide_y += 60
-        for line in textwrap.wrap(strat['guide'], width=35):
-            draw.text((110, guide_y), line, font=self.font_body, fill=C_TEXT_LIGHT)
-            guide_y += 50
-
-        # [NEW] 관련 첩보 연결
-        if news_list:
-            y = 800
-            draw.text((80, y), "KEY INTELLIGENCE", font=self.font_small, fill=C_TEXT_DIM)
-            y += 40
-            for news in news_list[:2]:
-                draw.text((80, y), f"• {textwrap.shorten(news['title'], width=50, placeholder='...')}", font=self.font_mini, fill=C_TEXT_DIM)
-                y += 35
 
         img.save(save_path)
 
     def create_news_card(self, news_item, idx, save_path):
+        """[개선] 텍스트 잘림 방지를 위해 width 조정"""
         img = self._create_base_image(self.selected_body_bg)
         draw = ImageDraw.Draw(img)
         draw.text((80, 100), f"GLOBAL INTELLIGENCE #{idx}", font=self.font_header, fill=C_TEXT_DIM)
         
         y = 200
-        wrapped_title = textwrap.wrap(news_item['title'], width=25)
+        # 뉴스 제목
+        # [수정] 제목이 카드 밖으로 나가는 것을 방지하기 위해 width를 23으로 조정
+        wrapped_title = textwrap.wrap(news_item['title'], width=23)
         for line in wrapped_title:
             draw.text((80, y), line, font=self.font_title, fill=C_TEXT_LIGHT)
             y += 80
 
         y += 30
+        # 뉴스 요약 (팩트)
         draw.text((80, y), "🔍 FACT", font=self.font_accent, fill=C_ACCENT_BLUE)
         y += 60
-        for line in textwrap.wrap(news_item['fact'], width=35)[:4]:
+        for line in textwrap.wrap(news_item['summary'], width=35):
             draw.text((100, y), line, font=self.font_body, fill=C_TEXT_DIM)
             y += 50
-        
+
         y += 30
-        draw.text((80, y), "👁️ VIEW", font=self.font_accent, fill=C_ACCENT_GREEN)
+        # 헌터의 뷰
+        draw.text((80, y), "👁️ HUNTER'S VIEW", font=self.font_accent, fill=C_ACCENT_GREEN)
         y += 60
-        for line in textwrap.wrap(news_item['view'], width=35)[:4]:
+        for line in textwrap.wrap(news_item['hunter_view'], width=35):
             draw.text((100, y), line, font=self.font_body, fill=C_TEXT_DIM)
             y += 50
+
+
 
         img.save(save_path)
 
@@ -420,7 +427,7 @@ class CardNewsFactory:
         self.create_scalping_map_card(data, save_dir / "05_scalping_map.png")
         
         for i, strat in enumerate(data['strategies'][:2], 1): # 최대 2개 전략
-            self.create_strategy_card(strat, i, data['news'], save_dir / f"06_strategy_{i}.png")
+            self.create_strategy_card(strat, i, save_dir / f"06_strategy_{i}.png")
         
         for i, news in enumerate(data['news'][:2], 1): # 최대 2개 뉴스
             self.create_news_card(news, i, save_dir / f"07_news_{i}.png")

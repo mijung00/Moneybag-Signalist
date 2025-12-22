@@ -13,3 +13,4 @@ python-dotenv
 sendgrid
 itsdangerous
 markdown
+moralis
