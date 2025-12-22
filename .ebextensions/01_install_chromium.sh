@@ -6,7 +6,7 @@ LOG_FILE="/var/log/chromium_install.log"
 touch $LOG_FILE
 chmod 666 $LOG_FILE
 
-echo "--- [$(date)] Starting Chromium Installation Script ---" > $LOG_FILE
+echo "--- [$(date)] Starting Chromium Installation Hook (predeploy) ---" > $LOG_FILE
 
 ARCH=$(uname -m)
 echo "Architecture detected: $ARCH" >> $LOG_FILE
@@ -52,4 +52,4 @@ else
     exit 1
 fi
 
-echo "--- [$(date)] Chromium Installation Script Finished ---" >> $LOG_FILE
+echo "--- [$(date)] Chromium Installation Hook Finished ---" >> $LOG_FILE
