@@ -158,16 +158,14 @@ def send_report_email_async(service_name, date_str, recipient_email):
         env["TEST_RECIPIENT"] = recipient_email
         
         command = [sys.executable, "-m", module_name, date_str]
-        print(f"🚀 [Archive Email] Executing: {' '.join(command)}")
+        print(f"🚀 [Report Email] Executing: {' '.join(command)}")
         subprocess.run(command, env=env)
 
 def send_welcome_email_async(service_name, recipient_email):
     """[NEW] 신규 구독자에게 환영 메일을 발송하는 전용 함수"""
     with app.app_context():
-        module_name = f"{service_name}.src.pipelines.send_welcome_email"
-        command = [sys.executable, "-m", module_name, recipient_email]
-        print(f"🚀 [Welcome Email] Executing: {' '.join(command)}")
-        subprocess.run(command, env=os.environ.copy())
+        # [수정] 일관성을 위해 run_script 헬퍼 함수를 사용하도록 변경
+        run_script(service_name, "src.pipelines.send_welcome_email", [recipient_email])
 
 def send_inquiry_email_async(to_email, subject, body, sender_email):
     """[NEW] 백그라운드에서 제휴문의 이메일을 발송하는 함수 (앱 컨텍스트 포함)"""

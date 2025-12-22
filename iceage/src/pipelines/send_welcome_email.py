@@ -1,128 +1,81 @@
 import os
 import sys
-import re
-import json
-import subprocess
 from pathlib import Path
-from datetime import datetime
-import boto3
-from botocore.exceptions import ClientError
+from itsdangerous import URLSafeTimedSerializer
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
-# [1] 경로 설정 및 환경변수 로드
-# -----------------------------------------------------------
-# 이 파일의 위치(iceage/src/pipelines)에서 4단계 상위 폴더가 프로젝트 루트
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.append(str(BASE_DIR))
-
+# --- 경로 설정 ---
 try:
-    from common.env_loader import load_env
-    load_env(BASE_DIR)
-    print("✅ [Welcome Email] 환경 변수 로드 성공")
-except ImportError:
-    print("⚠️ 'common' 폴더를 찾을 수 없습니다. 실행 위치를 확인해주세요.")
-    sys.exit(1)
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    PROJECT_ROOT = Path.cwd()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
-# [2] 설정 로더 (AWS 통합)
-# -----------------------------------------------------------
+# --- 환경 변수 로드 ---
+from common.env_loader import load_env
+load_env(PROJECT_ROOT)
+
 class ConfigLoader:
-    def __init__(self):
-        self.region = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
-        self.secrets_client = None
-
-    def _get_secrets_client(self):
-        if not self.secrets_client:
-            self.secrets_client = boto3.client("secretsmanager", region_name=self.region)
-        return self.secrets_client
-
     def get_env(self, key, default=None):
-        value = os.getenv(key, default)
-        if not value or not value.startswith("arn:aws:secretsmanager"):
-            return value
-        try:
-            client = self._get_secrets_client()
-            resp = client.get_secret_value(SecretId=value)
-            secret = resp.get("SecretString")
-            if secret and secret.strip().startswith("{"):
-                try:
-                    data = json.loads(secret)
-                    return data.get(key) or data.get("value") or secret
-                except json.JSONDecodeError:
-                    pass
-            return secret
-        except ClientError:
-            return value
+        return os.getenv(key, default)
 
 config = ConfigLoader()
 
-# [3] S3 매니저 및 헬퍼 함수
-# -----------------------------------------------------------
-try:
-    from common.s3_manager import S3Manager
-except ImportError:
-    print("⚠️ common/s3_manager.py를 찾을 수 없거나 임포트 실패.")
-    S3Manager = None
+def send_welcome_email(recipient_email: str):
+    sendgrid_api_key = config.get_env("SENDGRID_API_KEY")
+    web_base_url = config.get_env("WEB_BASE_URL", "https://www.fincore.co.kr")
+    secret_key = config.get_env('SECRET_KEY')
 
-s3_manager = None
-if S3Manager:
-    s3_manager = S3Manager(bucket_name="fincore-output-storage")
-
-def get_latest_report_date(service_name: str) -> str | None:
-    """S3에서 서비스별 최신 리포트 날짜를 찾아 반환합니다."""
-    if not s3_manager: return None
+    if not sendgrid_api_key or not secret_key:
+        print("❌ [Email Error] SENDGRID_API_KEY 또는 SECRET_KEY가 설정되지 않았습니다.")
+        return False
     
-    prefix = "iceage/out/" if service_name == 'signalist' else "moneybag/data/out/"
-    latest_report_date_str = None
-    try:
-        latest_file = s3_manager.get_latest_file_in_prefix(prefix)
-        if latest_file:
-            match = re.search(r'(\d{4}-\d{2}-\d{2})', latest_file)
-            if match: latest_report_date_str = match.group(1)
-    except Exception as e:
-        print(f"⚠️ [S3 Error] 최신 파일 조회 실패: {e}")
-    return latest_report_date_str
+    # 구독 취소 링크 생성
+    s = URLSafeTimedSerializer(secret_key)
+    signed_token = s.dumps(recipient_email, salt='email-unsubscribe')
+    unsubscribe_link = f"{web_base_url}/unsubscribe/signalist/{signed_token}"
+    privacy_policy_link = f"{web_base_url}/privacy"
 
-def send_simple_welcome_email(recipient_email: str):
-    """SendGrid를 사용하여 간단한 환영 이메일을 보냅니다."""
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail
-
-    api_key = config.get_env("SENDGRID_API_KEY")
-    if not api_key:
-        print("❌ [Email Error] SendGrid API Key가 없습니다.")
-        return
-
-    subject = "[Fincore] The Signalist 구독해주셔서 감사합니다!"
-    body = f"""
-    <p>Fincore의 The Signalist 서비스를 구독해주셔서 감사합니다.</p>
-    <p>매일 아침, 국내 주식 시장의 수급 이상 징후와 변곡점 리포트를 보내드립니다.</p>
-    <p>곧 첫 번째 리포트가 발송될 예정입니다. 많은 기대 바랍니다!</p>
-    <br>
-    <p>감사합니다.</p>
-    <p>Fincore 팀 드림</p>
+    subject = "Fincore - The Signalist 구독을 환영합니다! 📈"
+    html_content = f"""
+    <p>안녕하세요, {recipient_email}님!</p>
+    <p>Fincore의 The Signalist 뉴스레터 구독을 환영합니다.</p>
+    <p>저희는 국내 주식 시장(KRX)의 수급 이상 징후와 변곡점을 포착하여, 감정에 휘둘리지 않는 객관적인 투자 시그널을 매일 제공합니다.</p>
+    <p>매일 아침, 시장의 숨겨진 신호를 읽고, AI 기반의 정교한 분석을 담은 '데일리 브리핑'을 받아보세요.</p>
+    <p>저희와 함께라면, 복잡한 주식 시장에서도 성공적인 투자를 이어갈 수 있을 것입니다.</p>
+    <p>감사합니다.<br>Fincore 팀 드림</p>
+    <hr>
+    <p style="font-size: 0.8em; color: #888;">
+        본 메일은 admin@fincore.co.kr 주소로 발송된 Fincore 뉴스레터입니다.<br>
+        더 이상 수신을 원하지 않으시면 <a href="{unsubscribe_link}">여기를 눌러 구독을 취소해주세요</a>.
+    </p>
+    <p style="font-size: 0.8em; color: #888;">
+        (주)비제이유앤아이 | <a href="{privacy_policy_link}">개인정보 처리방침</a><br>
+        본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.
+    </p>
     """
-    
-    message = Mail(from_email="Fincore <admin@fincore.co.kr>", to_emails=recipient_email, subject=subject, html_content=body)
-    try:
-        sg = SendGridAPIClient(api_key)
-        sg.send(message)
-        print(f"✅ [Welcome Email] 기본 환영 이메일 발송 완료: {recipient_email}")
-    except Exception as e:
-        print(f"❌ [Welcome Email Error] {e}")
 
-# [4] 메인 실행 로직
-# -----------------------------------------------------------
+    message = Mail(
+        from_email="Fincore <admin@fincore.co.kr>",
+        to_emails=recipient_email,
+        subject=subject,
+        html_content=html_content
+    )
+
+    try:
+        sg = SendGridAPIClient(sendgrid_api_key)
+        sg.send(message)
+        print(f"✅ [Iceage Welcome Email Sent] To: {recipient_email}")
+        return True
+    except Exception as e:
+        print(f"❌ [Iceage Welcome Email Error] {e}")
+        return False
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2: sys.exit(1)
-    recipient_email = sys.argv[1]
-    service_name = "signalist"
-    print(f"📈 [Iceage Welcome Email] 신규 구독자 환영 메일 발송 시작 -> {recipient_email}")
-    latest_date = get_latest_report_date(service_name)
-    if latest_date:
-        print(f"✅ 최신 리포트({latest_date})를 찾았습니다. 해당 리포트를 발송합니다.")
-        env = os.environ.copy()
-        env["NEWSLETTER_AUTO_SEND"] = "0"
-        env["TEST_RECIPIENT"] = recipient_email
-        subprocess.run([sys.executable, "-m", "iceage.src.pipelines.send_newsletter", latest_date], env=env)
-    else:
-        print("⚠️ 발송할 최신 리포트가 없습니다. 기본 환영 이메일을 발송합니다.")
-        send_simple_welcome_email(recipient_email)
+    if len(sys.argv) < 2:
+        print("사용법: python -m iceage.src.pipelines.send_welcome_email [recipient_email]")
+        sys.exit(1)
+    
+    send_welcome_email(sys.argv[1])
