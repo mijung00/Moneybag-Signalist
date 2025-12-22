@@ -1,8 +1,8 @@
 # ✨ Acknowledgements
 
-This project was brought to life with significant assistance from **Google's Gemini Code Assist**. 
+This project was architected and implemented by **Google's Gemini Code Assist** under the direction of the project owner.
 
-As a project owner with a clear vision but without a coding background, I directed the entire development process. The architectural design, implementation, debugging, and deployment of the code were all carried out by Gemini based on my conversational prompts and detailed requirements. This repository stands as a testament to the power of collaborative development between humans and AI.
+As the project owner, I provided the vision, requirements, and direction. Gemini Code Assist was responsible for the architectural design, code implementation, debugging, and deployment configurations based on my conversational prompts. This repository stands as a testament to the power of collaborative development between a human director and an AI coding partner.
 
 ---
 
@@ -19,32 +19,38 @@ AWS Elastic Beanstalk 환경에서 운용되며, 데이터 수집부터 분석, 
 ### 🧊 Iceage (Signalist) - 국내 주식 분석 파이프라인
 * **Market Data**: KRX 전 종목 시세, 지수, 투자자별 매매동향 수집 (KRX API & Naver Finance Fallback)
 * **Data Analysis**:
-    * `Volume Anomaly`: 거래량 폭증/건조 등 특이 패턴 탐지
-    * `Theme Detector`: 네이버 금융 기반 실시간 주도 테마/섹터 분석
-    * `Smart Money`: 기관/외국인 수급 추적
-* **Content Generation**: 매일 아침 시장 상황을 정리한 **'Signalist Morning'** 뉴스레터 자동 생성 (LLM 기반 요약)
+    * **Volume Anomaly**: 거래량 폭증/건조 등 특이 패턴 탐지
+    * **Theme Detector**: 네이버 금융 기반 실시간 주도 테마/섹터 분석
+    * **Strategy Selector**: 투매, 낙폭과대, 눌림목 등 다양한 퀀트 전략에 기반한 타겟 종목 선정
+* **Content Generation**:
+    * **Daily Newsletter**: LLM(GPT-4o)을 활용하여 시장 요약, 투자자 마인드, 종목별 코멘트를 포함한 리포트 자동 생성
+    * **Community Image**: 뉴스레터 핵심 내용을 요약하여 커뮤니티 공유용 이미지 자동 생성
 
 ### 💰 Moneybag - 암호화폐 분석 파이프라인
 * **Crypto Data**: 주요 거래소(Binance, Upbit) 시세 및 김치 프리미엄(Kimp) 추적
-* **On-chain & News**: 글로벌 크립토 뉴스 수집 및 온체인 데이터 분석
-* **Strategy**: 변동성 돌파, 추세 추종 등 퀀트 전략 시그널 생성
-* **Auto Reporting**: 매일 아침 비트코인 시황 및 전략 리포트 발송
+* **On-chain & News**: 글로벌 크립토 뉴스 수집 및 고래 심리 지수 등 온체인 데이터 분석
+* **Dynamic Strategy**: 시장 국면(상승장, 하락장, 횡보장)을 자동으로 진단하고, 그에 맞는 최적의 AI 트레이딩 봇(전략)을 선정하여 리포트 생성
+* **Auto Reporting**:
+    * **Secret Note**: 매일 아침/저녁, 선정된 AI 트레이딩 봇의 관점으로 시황 및 전략 리포트 발송
+    * **Community Image**: '시크릿 노트'의 핵심 내용을 다크모드 이미지로 자동 생성
 
 ---
 
 ## 🛠 Architecture & Tech Stack
 
 ### Infrastructure (AWS)
-* **Compute**: AWS Elastic Beanstalk (Python 3.11, Amazon Linux 2023)
+* **Compute**: AWS Elastic Beanstalk (Python 3.11 on Amazon Linux 2)
 * **Storage**: Amazon S3 (데이터 레이크, 로그/결과물 영구 보존)
 * **Security**: **AWS Secrets Manager** (API Key 및 DB 접속 정보 관리)
 * **Scheduling**: Linux Crontab via `.ebextensions`
+* **Deployment**: GitHub Actions (CI/CD)
 
 ### Core Framework
 * **Language**: Python 3.11+
 * **Data Processing**: Pandas, NumPy
 * **AI/LLM**: OpenAI API (GPT-4o) for News summarization & Sentiment analysis
-* **Notification**: Slack Webhook (Monitoring), SMTP (Newsletter)
+* **Image Generation**: `html2image` with headless Chromium
+* **Notification**: SendGrid (Newsletter), Slack Webhook (Monitoring)
 
 ---
 
@@ -52,6 +58,7 @@ AWS Elastic Beanstalk 환경에서 운용되며, 데이터 수집부터 분석, 
 
 ```bash
 .
+├── .github/workflows/      # GitHub Actions CI/CD 워크플로우
 ├── common/                 # 공통 유틸리티 (Env Loader, S3 Manager)
 ├── iceage/                 # [Stock] Signalist 엔진 소스코드
 │   ├── src/
