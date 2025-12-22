@@ -35,9 +35,8 @@ class SummaryImageGenerator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         # [수정] 커뮤니티 권장: 실행 경로 명시 및 샌드박스 비활성화
         self.hti = Html2Image(
-            output_path=str(self.output_dir),
-            browser_executable='/usr/bin/chromium-browser',
-            custom_flags=['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage']
+            output_path=str(self.output_dir),            
+            custom_flags=['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage', '--single-process']
         )
         self.s3_manager = S3Manager(bucket_name="fincore-output-storage") if S3Manager else None
 
