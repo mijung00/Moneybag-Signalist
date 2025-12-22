@@ -4,9 +4,12 @@ import sys
 import re
 from pathlib import Path
 import time
+import tempfile
 import markdown
 import requests
 import uuid
+import boto3
+from botocore.exceptions import ClientError
 # --- 경로 설정 ---
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -133,35 +136,43 @@ class SummaryImageGenerator:
 
         print("📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다...")
         
-        temp_html_path = None
+        local_temp_path = None
+        s3_temp_key = None
+        bucket_name = "fincore-output-storage"
+        s3_client = boto3.client('s3')
+
         try:
-            # 1. 웹서버의 static 폴더에 임시 HTML 파일 생성
-            web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
-            temp_dir = PROJECT_ROOT / "static" / "temp_html"
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            # 1. 로컬에 임시 HTML 파일 생성
+            with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.html', encoding='utf-8') as temp_f:
+                temp_f.write(summary_html)
+                local_temp_path = temp_f.name
             
-            unique_filename = f"{self.ref_date}_{self.mode}_{uuid.uuid4()}.html"
-            temp_html_path = temp_dir / unique_filename
-            
-            with open(temp_html_path, 'w', encoding='utf-8') as f:
-                f.write(summary_html)
-            
-            public_url = f"{web_base_url}/static/temp_html/{unique_filename}"
-            print(f"🌍 생성된 임시 URL: {public_url}")
+            # 2. S3에 비공개로 업로드 (ContentType 명시)
+            unique_id = uuid.uuid4()
+            s3_temp_key = f"moneybag/temp_html/{self.ref_date}_{self.mode}_{unique_id}.html"
+            s3_client.upload_file(
+                local_temp_path, bucket_name, s3_temp_key,
+                ExtraArgs={'ContentType': 'text/html'}
+            )
+            print(f"☁️ [Upload] 임시 HTML 비공개 업로드 완료: {s3_temp_key}")
 
-            # [개선] 웹서버가 파일을 인식할 시간을 벌어주기 위해 10초 대기
-            print("⏳ ApiFlash가 URL을 인식하도록 10초 대기합니다...")
-            time.sleep(10)
+            # 3. S3 객체에 대한 Pre-signed URL 생성 (유효시간 5분)
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': bucket_name, 'Key': s3_temp_key},
+                ExpiresIn=300
+            )
+            print(f"🌍 생성된 임시 URL (pre-signed): {presigned_url[:100]}...")
 
-            # 2. API 파라미터 구성 및 호출
+            # 4. API 파라미터 구성 및 호출
             params = {
                 "access_key": self.apiflash_key,
-                "url": public_url,
+                "url": presigned_url,
                 "format": "png", "fresh": True, "width": 800,
             }
             response = requests.get("https://api.apiflash.com/v1/urltoimage", params=params)
 
-            # 3. 결과 처리
+            # 5. 결과 처리
             if response.status_code == 200:
                 output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
                 local_image_path = self.output_dir / output_filename
@@ -169,19 +180,22 @@ class SummaryImageGenerator:
                     f.write(response.content)
                 print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
             else:
-                try:
-                    error_message = response.json().get("message", response.text)
-                except requests.exceptions.JSONDecodeError:
-                    error_message = response.text
+                error_message = response.json().get("message", response.text)
                 raise Exception(f"ApiFlash 오류 (Status: {response.status_code}): {error_message}")
 
         except Exception as e:
             print(f"❌ 이미지 생성 프로세스 중 오류 발생: {e}")
         finally:
-            # 4. 임시 HTML 파일 삭제
-            if temp_html_path and temp_html_path.exists():
-                os.remove(temp_html_path)
-                print(f"🧹 임시 로컬 파일 삭제 완료: {temp_html_path}")
+            # 6. 임시 파일 정리
+            if s3_temp_key:
+                try:
+                    s3_client.delete_object(Bucket=bucket_name, Key=s3_temp_key)
+                    print(f"🧹 임시 S3 파일 삭제 완료: {s3_temp_key}")
+                except ClientError as e:
+                    print(f"⚠️ 임시 S3 파일 삭제 실패: {e}")
+            if local_temp_path and os.path.exists(local_temp_path):
+                os.remove(local_temp_path)
+                print(f"🧹 임시 로컬 파일 삭제 완료: {local_temp_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
