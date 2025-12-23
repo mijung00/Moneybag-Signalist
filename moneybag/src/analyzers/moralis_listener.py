@@ -22,8 +22,13 @@ from datetime import datetime, timezone
 app = Flask(__name__)
 
 # 데이터 저장 경로
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'out')
-WHALE_LOG_FILE = os.path.join(DATA_DIR, 'whale_transactions.jsonl')
+# [수정] 서버 환경에서는 배포 시 삭제되지 않는 영구 경로에 로그를 저장합니다.
+if os.path.exists('/var/log'): # Linux 서버 환경인지 확인
+    PERSISTENT_LOG_DIR = '/var/log/moneybag'
+else: # 로컬 Windows 환경일 경우 기존 경로 사용
+    PERSISTENT_LOG_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'out')
+
+WHALE_LOG_FILE = os.path.join(PERSISTENT_LOG_DIR, 'whale_transactions.jsonl')
 
 # Moralis Stream 설정에서 복사한 API 키 (Webhook 서명 검증용)
 MORALIS_API_KEY = os.getenv("MORALIS_API_KEY")
@@ -72,6 +77,9 @@ def moralis_webhook():
                 'transaction_hash': tx.get('transactionHash')
             }
 
+            # [수정] 파일에 쓰기 전에 영구 로그 디렉터리가 존재하는지 확인하고 없으면 생성합니다.
+            os.makedirs(PERSISTENT_LOG_DIR, exist_ok=True)
+
             # 파일에 한 줄씩 추가 (JSON Lines 형식)
             with open(WHALE_LOG_FILE, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(whale_tx) + '\n')
@@ -85,7 +93,8 @@ def moralis_webhook():
 
 if __name__ == '__main__':
     # 로그 파일 경로 확인 및 생성
-    os.makedirs(DATA_DIR, exist_ok=True)
+    # 로컬에서 직접 실행할 때도 디렉터리가 생성되도록 보장합니다.
+    os.makedirs(PERSISTENT_LOG_DIR, exist_ok=True)
     print(f"🐋 Moralis 고래 추적 리스너(Webhook 서버)를 시작합니다.")
     print(f"   - 로그 파일: {WHALE_LOG_FILE}")
     print(f"   - 수신 주소: http://0.0.0.0:5001/moralis-webhook")

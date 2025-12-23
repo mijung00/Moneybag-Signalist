@@ -152,8 +152,8 @@ def run_routine(mode="morning"):
             print("\n☁️ [S3 Sync] 머니백 데이터 및 결과물 전체 백업 중...")
             s3 = S3Manager()
             
-            # [테스트용] recent_days=2
-            BACKUP_DAYS = 2
+            # [테스트용] recent_days=0 (오늘 파일만)
+            BACKUP_DAYS = 0
             
             # moneybag 폴더 위치 찾기
             moneybag_root = BASE_DIR / "moneybag"

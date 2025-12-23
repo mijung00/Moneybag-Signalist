@@ -1,6 +1,8 @@
 beautifulsoup4==4.14.3
 boto3==1.42.7
 botocore==1.42.7
+cryptography>=42.0.0
+paramiko>=3.4.0
 ccxt==4.5.26
 edge_tts==7.2.3
 Flask==3.1.2
@@ -16,9 +18,10 @@ pymysql==1.1.2
 python-dotenv==1.2.1
 requests==2.32.5
 sendgrid==6.12.5
+sshtunnel==0.4.0
 tqdm==4.67.1
 urllib3==1.26.20
 yfinance==0.2.66
 
-# 파이썬 코드가 아닌 스크립트(daily_runner.py, get_data.bat)에서 사용
+# Used in scripts (daily_runner.py, get_data.bat), not in python code
 awscli

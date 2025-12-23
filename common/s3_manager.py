@@ -20,7 +20,9 @@ class S3Manager:
             return False
         try:
             s3_key = s3_file_path.replace("\\", "/") 
-            print(f"☁️ [Upload] {local_file_path} -> {s3_key}")
+            # [버그 수정] 윈도우 경로의 역슬래시(\)가 f-string에서 오작동하는 것을 방지
+            # f-string 대신 문자열 연결(+)을 사용하여 예측 불가능한 오류를 원천 차단
+            print("☁️ [Upload] " + str(local_file_path) + " -> " + s3_key)
             self.s3.upload_file(local_file_path, self.bucket_name, s3_key)
             return True
         except Exception as e:
@@ -154,8 +156,9 @@ class S3Manager:
 
                 # S3 경로 계산 (상대 경로 유지)
                 relative_path = os.path.relpath(local_path, local_dir)
-                s3_path = os.path.join(s3_prefix, relative_path).replace("\\", "/")
-                
+                # [버그 수정] os.path.join 대신 URL 스타일로 경로를 명시적으로 조합하여 윈도우/리눅스 호환성 문제 해결
+                s3_path = f"{s3_prefix}/{relative_path.replace('\\', '/')}"
+
                 if self.upload_file(local_path, s3_path):
                     count += 1
         

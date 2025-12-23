@@ -430,8 +430,8 @@ def main() -> None:
     print("\n☁️ [S3 Sync] 데이터 및 결과물 전체 백업 중...")
     
     # [테스트용] recent_days=0 (오늘 파일만)
-    # [실사용] recent_days=2 (최근 2~3일치)
-    BACKUP_DAYS = 2 
+    # [실사용] recent_days=0
+    BACKUP_DAYS = 0
     
     # 1. iceage/data 폴더 (raw, processed, reference 포함)
     s3.upload_directory(str(DATA_DIR), "iceage/data", recent_days=BACKUP_DAYS)

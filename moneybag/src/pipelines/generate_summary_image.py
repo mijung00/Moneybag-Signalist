@@ -24,6 +24,12 @@ try:
 except ImportError:
     print("⚠️ [LLM Import Error] OpenAI 기능이 비활성화될 수 있습니다.")
     _chat = None
+# [추가] S3 매니저 임포트
+try:
+    from common.s3_manager import S3Manager
+except ImportError:
+    print("⚠️ [S3 Manager Import Error] S3 기능이 비활성화될 수 있습니다.")
+    S3Manager = None
 
 class SummaryImageGenerator:
     def __init__(self, mode: str):
@@ -132,33 +138,74 @@ class SummaryImageGenerator:
         key_to_log = f"{self.apiflash_key[:4]}...{self.apiflash_key[-4:]}" if self.apiflash_key and len(self.apiflash_key) > 8 else "Invalid or short key"
         print(f"🔑 Using ApiFlash Key: {key_to_log}")
 
-        md_content = self.md_path.read_text(encoding='utf-8')
-        summary_md = self._summarize_with_llm(md_content)
-        summary_html = self._wrap_in_html(summary_md)
+        if not S3Manager:
+            print("❌ S3 Manager를 로드할 수 없어 이미지 생성을 건너뜁니다.")
+            return
 
-        print("📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다...")
-        
+        s3 = S3Manager()
+        temp_html_key = f"temp/summary_images/{uuid.uuid4()}.html"
+        temp_html_url = None
+
         try:
-            # [개선] S3를 거치지 않고 HTML 콘텐츠를 직접 API로 전송 (iceage 프로젝트와 동일한 방식)
+            # 1. 요약 HTML 생성
+            md_content = self.md_path.read_text(encoding='utf-8')
+            summary_md = self._summarize_with_llm(md_content)
+            summary_html = self._wrap_in_html(summary_md)
+
+            # 2. 임시 HTML을 S3에 업로드
+            s3.s3.put_object(
+                Bucket=s3.bucket_name,
+                Key=temp_html_key,
+                Body=summary_html.encode('utf-8'),
+                ContentType='text/html; charset=utf-8'
+            )
+            temp_html_url = f"https://{s3.bucket_name}.s3.{s3.s3.meta.region_name}.amazonaws.com/{temp_html_key}"
+            print(f"📄 임시 HTML S3 업로드 완료: {temp_html_url}")
+            
+            # S3 전파 시간 대기
+            print("   -> S3 전파를 위해 3초 대기합니다...")
+            time.sleep(3)
+
+            # 3. ApiFlash API 호출 (URL 사용)
             params = {
                 "access_key": self.apiflash_key,
-                "html": summary_html,
-                "format": "png", "fresh": True, "width": 800,
+                "url": temp_html_url,
+                "format": "png", "fresh": "true", "width": 800,
             }
-            # GET 요청은 URL 길이에 제약이 있으므로 POST 요청으로 변경
-            response = requests.post("https://api.apiflash.com/v1/urltoimage", json=params)
+            api_url = "https://api.apiflash.com/v1/urltoimage"
 
-            if response.status_code == 200:
-                output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
-                local_image_path = self.output_dir / output_filename
-                with open(local_image_path, "wb") as f:
-                    f.write(response.content)
-                print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
-            else:
-                error_message = response.json().get("message", response.text)
-                raise Exception(f"ApiFlash 오류 (Status: {response.status_code}): {error_message}")
-        except Exception as e:
-            print(f"❌ 이미지 생성 프로세스 중 오류 발생: {e}")
+            for attempt in range(3):
+                try:
+                    print(f"📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다... (시도 {attempt + 1}/3)")
+                    response = requests.get(api_url, params=params, timeout=90)
+
+                    if response.status_code == 200 and response.content:
+                        output_filename = f"WhaleHunter_Summary_{self.ref_date}_{self.mode}.png"
+                        local_image_path = self.output_dir / output_filename
+                        with open(local_image_path, "wb") as f:
+                            f.write(response.content)
+                        print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
+                        return
+                    else:
+                        error_message = response.text
+                        try: error_message = response.json().get("message", response.text)
+                        except requests.exceptions.JSONDecodeError: pass
+                        print(f"❌ ApiFlash API가 오류를 반환했습니다. (상태 코드: {response.status_code})")
+                        print(f"   -> 응답 내용: {error_message[:200]}")
+                except requests.exceptions.RequestException as e:
+                    print(f"❌ ApiFlash API 호출 중 네트워크 오류 발생: {e}")
+                if attempt < 2:
+                    print(f"   -> 5초 후 재시도합니다...")
+                    time.sleep(5)
+            print("❌ 최종적으로 이미지 생성에 실패했습니다.")
+        finally:
+            # 4. 임시 HTML 파일 S3에서 삭제
+            if temp_html_url:
+                try:
+                    s3.s3.delete_object(Bucket=s3.bucket_name, Key=temp_html_key)
+                    print(f"🗑️ 임시 HTML 파일 삭제 완료: {temp_html_key}")
+                except Exception as e:
+                    print(f"⚠️ 임시 HTML 파일 삭제 실패: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

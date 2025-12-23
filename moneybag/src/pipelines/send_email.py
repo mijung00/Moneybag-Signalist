@@ -10,6 +10,11 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, To, Personalization, Substitution
 from itsdangerous import URLSafeTimedSerializer
 import re
+# [추가] SSH 터널링 라이브러리
+try:
+    from sshtunnel import SSHTunnelForwarder
+except ImportError:
+    SSHTunnelForwarder = None
 
 # 프로젝트 루트 경로
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -39,19 +44,56 @@ class EmailSender:
             print("⚠️ [EmailSender] pymysql 모듈이 설치되지 않았습니다.")
             return []
 
+        # [추가] SSH 터널링 사용 여부 결정
+        use_ssh_tunnel = os.getenv("USE_SSH_TUNNEL", "0") == "1"
+        
+        db_host = os.getenv("DB_HOST")
+        db_port = int(os.getenv("DB_PORT", 3306))
+        db_user = os.getenv("DB_USER")
+        db_password = os.getenv("DB_PASSWORD")
+        db_name = os.getenv("DB_NAME")
+
         try:
-            conn = pymysql.connect(
-                host=os.getenv("DB_HOST"), port=int(os.getenv("DB_PORT", 3306)),
-                user=os.getenv("DB_USER"), password=os.getenv("DB_PASSWORD"),
-                db=os.getenv("DB_NAME"), charset='utf8mb4', cursorclass=pymysql.cursors.SSDictCursor
-            )
-            with conn.cursor() as cursor:
-                # [버그 수정] moneybag 구독자만 조회하도록 변경
-                # [성능 개선] SSDictCursor와 함께 사용하여, 모든 결과를 메모리에 올리지 않고 스트리밍
-                cursor.execute("SELECT email FROM subscribers WHERE is_active=1 AND is_moneybag=1")
-                emails = [row['email'] for row in cursor]
-                print(f"✅ [DB Load] 구독자 {len(emails)}명 조회 성공")
-                return emails
+            # SSH 터널링을 사용하는 경우
+            if use_ssh_tunnel and SSHTunnelForwarder:
+                ssh_host = os.getenv("SSH_HOST")
+                ssh_user = os.getenv("SSH_USER")
+                ssh_key_path = os.getenv("SSH_PRIVATE_KEY_PATH")
+
+                if not all([ssh_host, ssh_user, ssh_key_path]):
+                    raise ConnectionError("SSH 터널링에 필요한 환경변수(SSH_HOST, SSH_USER, SSH_PRIVATE_KEY_PATH)가 없습니다.")
+
+                print(f"🚇 SSH 터널을 통해 DB에 연결합니다. ({ssh_user}@{ssh_host})")
+                
+                with SSHTunnelForwarder(
+                    (ssh_host, 22),
+                    ssh_username=ssh_user,
+                    ssh_pkey=os.path.expanduser(ssh_key_path),
+                    remote_bind_address=(db_host, db_port)
+                ) as tunnel:
+                    # 터널을 통해 로컬 포트로 접속
+                    conn = pymysql.connect(
+                        host='127.0.0.1', port=tunnel.local_bind_port,
+                        user=db_user, password=db_password,
+                        db=db_name, charset='utf8mb4', cursorclass=pymysql.cursors.SSDictCursor
+                    )
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT email FROM subscribers WHERE is_active=1 AND is_moneybag=1")
+                        emails = [row['email'] for row in cursor]
+                        print(f"✅ [DB Load] 구독자 {len(emails)}명 조회 성공 (SSH 터널 경유)")
+                        return emails
+            else:
+                # 기존 직접 연결 방식
+                conn = pymysql.connect(
+                    host=db_host, port=db_port,
+                    user=db_user, password=db_password,
+                    db=db_name, charset='utf8mb4', cursorclass=pymysql.cursors.SSDictCursor
+                )
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT email FROM subscribers WHERE is_active=1 AND is_moneybag=1")
+                    emails = [row['email'] for row in cursor]
+                    print(f"✅ [DB Load] 구독자 {len(emails)}명 조회 성공")
+                    return emails
         except Exception as e:
             print(f"⚠️ [DB Error] 구독자 조회 실패: {e}")
             # DB 연결 실패 시 테스트 수신자 반환
@@ -107,7 +149,7 @@ class EmailSender:
     def _wrap_body_in_template(self, body_content):
         """HTML 본문을 받아 전체 이메일 템플릿에 삽입합니다."""
         # [수정] 로컬 테스트를 위해 WEB_BASE_URL 환경변수 사용
-        web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
+        web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.co.kr")
         return f"""
         <!DOCTYPE html>
         <html>
@@ -183,7 +225,7 @@ class EmailSender:
                 # [추가] 각 이메일별 개인화된 구독 취소 링크 생성
                 try:
                     # [수정] 로컬 테스트를 위해 WEB_BASE_URL 환경변수 사용
-                    web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.trade")
+                    web_base_url = os.getenv("WEB_BASE_URL", "https://www.fincore.co.kr")
                     unsubscribe_token = self.serializer.dumps(email, salt='email-unsubscribe')
                     unsubscribe_url = f"{web_base_url}/unsubscribe/moneybag/{unsubscribe_token}"
                     

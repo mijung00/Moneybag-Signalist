@@ -9,9 +9,13 @@ class MoralisTracker:
     """
     def __init__(self):
         # 이제 API 키는 리스너(listener)만 사용합니다.
-        self.log_file_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'data', 'out', 'whale_transactions.jsonl'
-        )
+        # [수정] 서버와 로컬 환경 모두에서 올바른 로그 파일 경로를 찾습니다.
+        if os.path.exists('/var/log'): # Linux 서버 환경인지 확인
+            log_dir = '/var/log/moneybag'
+        else: # 로컬 Windows 환경일 경우 기존 경로 사용
+            log_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'out')
+
+        self.log_file_path = os.path.join(log_dir, 'whale_transactions.jsonl')
         if not os.path.exists(self.log_file_path):
             print(f"⚠️ [MoralisTracker] 로그 파일이 없습니다: {self.log_file_path}")
             print("   -> Webhook 리스너(moralis_listener.py)가 먼저 실행되어야 합니다.")
