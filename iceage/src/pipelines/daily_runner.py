@@ -57,16 +57,32 @@ def _has_core_kr_data(ref_str: str) -> bool:
 
 
 def _run(cmd: list[str]) -> None:
-    """하위 모듈을 서브프로세스로 실행하는 헬퍼.
-
-    항상 현재 인터프리터(sys.executable)를 사용해서
-    venv / 패키지 환경이 그대로 유지되도록 한다.
+    """
+    [개선] 하위 모듈을 서브프로세스로 실행하고, 오류 발생 시 상세 내용을 출력합니다.
+    - 항상 현재 인터프리터(sys.executable)를 사용해서 venv / 패키지 환경이 그대로 유지되도록 합니다.
+    - check_call 대신 Popen을 사용하여 stdout/stderr를 캡처하고, 오류 발생 시 상세히 로깅합니다.
     """
     if cmd and cmd[0] == "python":
         cmd = [sys.executable] + cmd[1:]
 
     print(f"\n$ {' '.join(cmd)}")
-    subprocess.check_call(cmd)
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding='utf-8'
+    )
+    stdout, stderr = process.communicate()
+
+    # 성공한 경우에도 표준 출력을 보여주어 진행 상황 파악 용이
+    print(stdout)
+
+    if process.returncode != 0:
+        print("--- SUBPROCESS STDERR ---")
+        print(stderr)
+        print("-------------------------")
+        raise subprocess.CalledProcessError(process.returncode, cmd, output=stdout, stderr=stderr)
 
 
 def run_step(name: str, cmd: list[str], critical: bool = False) -> None:

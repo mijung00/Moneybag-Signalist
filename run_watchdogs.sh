@@ -24,6 +24,7 @@ PYTHON="$VENV_DIR/bin/python"
 
 # 모듈 import가 안정적으로 되도록 현재 폴더를 PYTHONPATH에 추가
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+# [추가] 파이썬의 print 출력이 버퍼링 없이 즉시 로그에 기록되도록 설정 (디버깅에 필수)
 export PYTHONUNBUFFERED="1"
 
 echo "✅ PYTHONPATH 설정 완료: $PYTHONPATH"
