@@ -119,8 +119,11 @@ class NaverClient:
                 url = f"https://m.stock.naver.com/api/index/{symbol}/basic"
             else:
                 url = f"https://api.stock.naver.com/index/{symbol}/basic"
-            
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+            }
+            res = requests.get(url, headers=headers, timeout=10) # 타임아웃 10초로 연장
             if res.status_code == 200:
                 data = res.json()
                 # [수정] API 변경에 대응하기 위해 여러 키를 시도
@@ -151,7 +154,10 @@ class NaverClient:
         res: Optional[requests.Response] = None
         try:
             url = f"https://m.stock.naver.com/front-api/marketIndex/productDetail?category=exchange&reutersCode={symbol}"
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+            }
+            res = requests.get(url, headers=headers, timeout=10)
             if res.status_code == 200:
                 data = res.json().get('result', {})
                 price_str = data.get('closePrice') or data.get('lastPrice') or data.get('compareToPreviousClosePrice')
@@ -180,7 +186,10 @@ class NaverClient:
         res: Optional[requests.Response] = None
         try:
             url = f"https://m.stock.naver.com/front-api/marketIndex/productDetail?category=oil&reutersCode={symbol}"
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+            }
+            res = requests.get(url, headers=headers, timeout=10)
             if res.status_code == 200:
                 data = res.json().get('result', {})
                 price_str = data.get('closePrice') or data.get('lastPrice') or data.get('compareToPreviousClosePrice')

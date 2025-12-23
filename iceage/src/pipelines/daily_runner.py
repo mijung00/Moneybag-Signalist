@@ -395,8 +395,11 @@ def main() -> None:
     notify_on_success = os.getenv("SLACK_NOTIFY_ON_SUCCESS", "0") == "1"
 
     if enable_slack:
+        slack_notifier = None
         try:
+            # [개선] 임포트를 먼저 시도하여 모듈 존재 여부 확인
             from iceage.src.utils.slack_notifier import send_slack_message
+            slack_notifier = send_slack_message
 
             if ERRORS:
                 # 에러 요약
@@ -409,10 +412,12 @@ def main() -> None:
                 msg = None
 
             if msg:
-                send_slack_message(msg)
+                slack_notifier(msg)
                 print("[INFO] 슬랙 알림 전송 완료")
 
-        except Exception as e:
+        except ImportError:
+            print("[WARN] 슬랙 알림 전송 실패: 'iceage.src.utils.slack_notifier' 모듈을 찾을 수 없습니다.")
+        except Exception as e: # 네트워크 오류 등 기타 예외 처리
             print(f"[WARN] 슬랙 알림 전송 실패: {e}")
 # ... (위쪽 코드는 그대로 유지) ...
 
