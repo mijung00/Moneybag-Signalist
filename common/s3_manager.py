@@ -1,6 +1,8 @@
 import boto3
+from pathlib import Path, PurePosixPath
 import os
 import time
+import posixpath
 import re
 from datetime import datetime, timedelta
 from botocore.exceptions import NoCredentialsError, ClientError
@@ -20,9 +22,10 @@ class S3Manager:
             return False
         try:
             s3_key = s3_file_path.replace("\\", "/") 
-            # [버그 수정] 윈도우 경로의 역슬래시(\)가 f-string에서 오작동하는 것을 방지
-            # f-string 대신 문자열 연결(+)을 사용하여 예측 불가능한 오류를 원천 차단
-            print("☁️ [Upload] " + str(local_file_path) + " -> " + s3_key)
+            # [버그 수정] Windows 콘솔에서 경로 출력 시 깨지는 현상을 바로잡습니다.
+            # 화면에 출력할 로컬 경로도 S3처럼 '/' 구분자를 사용하도록 통일합니다.
+            safe_local_path_for_print = str(local_file_path).replace('\\', '/')
+            print(f"☁️ [Upload] {safe_local_path_for_print} -> {s3_key}")
             self.s3.upload_file(local_file_path, self.bucket_name, s3_key)
             return True
         except Exception as e:
@@ -155,10 +158,9 @@ class S3Manager:
                         continue 
 
                 # S3 경로 계산 (상대 경로 유지)
-                relative_path = os.path.relpath(local_path, local_dir)
-                # [버그 수정] f-string 내 역슬래시 사용으로 인한 SyntaxError 해결
-                sanitized_relative_path = relative_path.replace('\\', '/')
-                s3_path = f"{s3_prefix}/{sanitized_relative_path}"
+                # [버그 수정] 경로 깨짐 최종 해결. pathlib으로 상대경로를 구하고, posixpath로 안전하게 조합합니다.
+                relative_path_posix = Path(local_path).relative_to(local_dir).as_posix()
+                s3_path = posixpath.join(s3_prefix, relative_path_posix)
 
                 if self.upload_file(local_path, s3_path):
                     count += 1

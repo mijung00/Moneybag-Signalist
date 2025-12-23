@@ -65,13 +65,18 @@ def _run(cmd: list[str]) -> None:
     if cmd and cmd[0] == "python":
         cmd = [sys.executable] + cmd[1:]
 
+    # [추가] Windows 인코딩 문제를 해결하기 위해 모든 자식 프로세스를 UTF-8 모드로 실행
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+
     print(f"\n$ {' '.join(cmd)}")
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        encoding='utf-8'
+        encoding='utf-8',
+        env=env
     )
     stdout, stderr = process.communicate()
 

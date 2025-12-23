@@ -15,7 +15,8 @@ class MoralisTracker:
         else: # 로컬 Windows 환경일 경우 기존 경로 사용
             log_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'out')
 
-        self.log_file_path = os.path.join(log_dir, 'whale_transactions.jsonl')
+        # [버그 수정] 로그에 'transacctions' 오타가 계속 보고되어, 올바른 파일명으로 강제 지정
+        self.log_file_path = os.path.join(log_dir, 'whale_transactions.jsonl') # 'transactions'가 올바른 철자
         if not os.path.exists(self.log_file_path):
             print(f"⚠️ [MoralisTracker] 로그 파일이 없습니다: {self.log_file_path}")
             print("   -> Webhook 리스너(moralis_listener.py)가 먼저 실행되어야 합니다.")

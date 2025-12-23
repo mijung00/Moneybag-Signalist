@@ -135,10 +135,15 @@ def run_script(folder_name, module_path, args=[]):
     full_module_path = f"{folder_name}.{module_path}"
     cmd = [sys.executable, "-m", full_module_path] + args
     
+    # [추가] Windows 인코딩 문제를 해결하기 위해 모든 자식 프로세스를 UTF-8 모드로 실행
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+
     print(f"🚀 [Start Task] {full_module_path}")
     try:
         # cwd를 프로젝트 루트로 설정하여 실행
-        result = subprocess.run(cmd, cwd=base_dir, capture_output=True, text=True, encoding='utf-8')
+        # [수정] env 파라미터를 추가하여 UTF-8 모드 강제
+        result = subprocess.run(cmd, cwd=base_dir, capture_output=True, text=True, encoding='utf-8', env=env)
         print(f"✅ Output:\n{result.stdout}")
         if result.stderr:
             print(f"⚠️ Error Log:\n{result.stderr}")

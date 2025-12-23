@@ -17,6 +17,10 @@ except IndexError:
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+# [추가] .env 파일에서 환경변수를 로드합니다.
+from common.env_loader import load_env
+load_env(PROJECT_ROOT)
+
 # --- 의존성 임포트 ---
 try:
     from iceage.src.llm.openai_driver import _chat
@@ -109,27 +113,65 @@ class SummaryImageGenerator:
 
         print("📸 ApiFlash API를 사용하여 요약본을 이미지로 변환 중입니다...")
         
+        local_temp_path = None
+        s3_temp_key = None
+        bucket_name = "fincore-output-storage"
+        s3_client = boto3.client('s3')
+
         try:
-            # [개선] S3를 거치지 않고 HTML 콘텐츠를 직접 API로 전송
+            # 1. 로컬에 임시 HTML 파일 생성
+            with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.html', encoding='utf-8') as temp_f:
+                temp_f.write(summary_html)
+                local_temp_path = temp_f.name
+
+            # 2. S3에 비공개로 업로드
+            unique_id = uuid.uuid4()
+            s3_temp_key = f"iceage/temp_html/{self.ref_date}_{unique_id}.html"
+            s3_client.upload_file(
+                local_temp_path, bucket_name, s3_temp_key,
+                ExtraArgs={'ContentType': 'text/html; charset=utf-8'}
+            )
+            print(f"☁️ [Upload] 임시 HTML 비공개 업로드 완료: {s3_temp_key}")
+
+            # 3. S3 객체에 대한 Pre-signed URL 생성 (유효시간 5분)
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': bucket_name, 'Key': s3_temp_key},
+                ExpiresIn=300
+            )
+            print(f"🌍 생성된 임시 URL (pre-signed): {presigned_url[:100]}...")
+
+            # 4. API 파라미터 구성 및 호출
             params = {
                 "access_key": self.apiflash_key,
-                "html": summary_html, # url 대신 html 파라미터 사용
+                "url": presigned_url,
                 "format": "png", "fresh": True, "width": 800,
             }
-            # GET 요청은 URL 길이에 제약이 있으므로 POST 요청으로 변경
-            response = requests.post("https://api.apiflash.com/v1/urltoimage", json=params)
+            response = requests.get("https://api.apiflash.com/v1/urltoimage", params=params, timeout=90)
 
-            if response.status_code == 200:
+            # 5. 결과 처리
+            if response.status_code == 200 and response.content:
                 output_filename = f"Signalist_Summary_{self.ref_date}.png"
                 local_image_path = self.output_dir / output_filename
                 with open(local_image_path, "wb") as f:
                     f.write(response.content)
                 print(f"✅ 로컬에 이미지 저장 완료: {local_image_path}")
             else:
-                error_message = response.json().get("message", response.text)
+                error_message = response.text
                 raise Exception(f"ApiFlash 오류 (Status: {response.status_code}): {error_message}")
         except Exception as e:
             print(f"❌ 이미지 생성 프로세스 중 오류 발생: {e}")
+        finally:
+            # 6. 임시 파일 정리
+            if s3_temp_key:
+                try:
+                    s3_client.delete_object(Bucket=bucket_name, Key=s3_temp_key)
+                    print(f"🧹 임시 S3 파일 삭제 완료: {s3_temp_key}")
+                except ClientError as e:
+                    print(f"⚠️ 임시 S3 파일 삭제 실패: {e}")
+            if local_temp_path and os.path.exists(local_temp_path):
+                os.remove(local_temp_path)
+                print(f"🧹 임시 로컬 파일 삭제 완료: {local_temp_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
