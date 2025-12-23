@@ -1,4 +1,24 @@
-# 기존에 사용하시던 다른 패키지들이 있다면 이 파일에 모두 포함되어야 합니다.
+beautifulsoup4==4.14.3
+boto3==1.42.7
+botocore==1.42.7
+ccxt==4.5.26
+edge_tts==7.2.3
+Flask==3.1.2
+html2image==2.0.7
+itsdangerous==2.2.0
+Markdown==3.10
+moviepy==1.0.3
+numpy==2.4.0
+openai==2.14.0
+pandas==2.3.3
+Pillow==12.0.0
+pymysql==1.1.2
+python-dotenv==1.2.1
+requests==2.32.5
+sendgrid==6.12.5
+tqdm==4.67.1
+urllib3==1.26.20
+yfinance==0.2.66
 
-yfinance
-ccxt
+# 파이썬 코드가 아닌 스크립트(daily_runner.py, get_data.bat)에서 사용
+awscli

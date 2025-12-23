@@ -492,60 +492,25 @@ def run_volume_anomaly_v2(
             "조건(history_days/min_history_days)에 맞는 종목이 없습니다."
         )
 
-
-    if df.empty:
-        raise RuntimeError(
-            f"[ERROR] {ref_date_str} 기준으로 "
-            "조건(history_days/min_history_days)에 맞는 종목이 없습니다."
-        )
-
     # 6) 개별 종목 거래대금 기준 괴리율 (비율 + z-score)
-    def _safe_ratio(row):
-        tv = row.get("trading_value")
-        avg = row.get("avg_trading_value")
-        if pd.isna(tv) or pd.isna(avg) or avg <= 0:
-            return pd.NA
-        return tv / avg
+    # [개선] .apply 대신 벡터 연산을 사용하여 성능 대폭 향상
+    # 분모가 0인 경우를 대비하여 np.divide 사용
+    import numpy as np
+    df['tv_ratio'] = np.divide(df['trading_value'], df['avg_trading_value'], 
+                             out=np.full_like(df['trading_value'], np.nan, dtype=float), 
+                             where=df['avg_trading_value'] > 0)
+    
+    df['tv_z'] = np.divide(df['trading_value'] - df['avg_trading_value'], df['std_trading_value'],
+                         out=np.full_like(df['trading_value'], np.nan, dtype=float),
+                         where=df['std_trading_value'] > 0)
 
-    def _safe_z(row):
-        tv = row.get("trading_value")
-        avg = row.get("avg_trading_value")
-        std = row.get("std_trading_value")
-        if (
-            pd.isna(tv)
-            or pd.isna(avg)
-            or pd.isna(std)
-            or std <= 0
-        ):
-            return pd.NA
-        return (tv - avg) / std
+    df['vol_ratio'] = np.divide(df['volume'], df['avg_volume'],
+                              out=np.full_like(df['volume'], np.nan, dtype=float),
+                              where=df['avg_volume'] > 0)
 
-    df["tv_ratio"] = df.apply(_safe_ratio, axis=1)
-    df["tv_z"] = df.apply(_safe_z, axis=1)
-
-    # 거래량 기반 괴리율도 참고용으로 계산
-    def _safe_ratio_vol(row):
-        v = row.get("volume")
-        avg = row.get("avg_volume")
-        if pd.isna(v) or pd.isna(avg) or avg <= 0:
-            return pd.NA
-        return v / avg
-
-    def _safe_z_vol(row):
-        v = row.get("volume")
-        avg = row.get("avg_volume")
-        std = row.get("std_volume")
-        if (
-            pd.isna(v)
-            or pd.isna(avg)
-            or pd.isna(std)
-            or std <= 0
-        ):
-            return pd.NA
-        return (v - avg) / std
-
-    df["vol_ratio"] = df.apply(_safe_ratio_vol, axis=1)
-    df["vol_z"] = df.apply(_safe_z_vol, axis=1)
+    df['vol_z'] = np.divide(df['volume'] - df['avg_volume'], df['std_volume'],
+                          out=np.full_like(df['volume'], np.nan, dtype=float),
+                          where=df['std_volume'] > 0)
 
     # 7) 시장 레짐 계산 (전체 시장 기준)
     market_info = _compute_market_regime(hist, today, ref_date)

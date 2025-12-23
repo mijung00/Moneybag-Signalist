@@ -1,49 +1,40 @@
 # iceage/src/tools/force_generate_anomaly.py
 import sys
-import subprocess
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 from pathlib import Path
+from tqdm import tqdm
 
-# 경로 안전장치
+# 프로젝트 루트 경로를 sys.path에 추가
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-def run_force_generation(start_date_str: str, end_date_str: str):
-    """
-    지정된 기간 동안 volume_anomaly_v2를 강제로 실행하여 파일을 생성합니다.
-    """
-    start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-    end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-    
-    print(f"🚀 괴리율 데이터 강제 생성 시작: {start_date} ~ {end_date}")
-    
-    curr = start_date
-    while curr <= end_date:
-        # 주말 제외 (토/일)
-        if curr.weekday() < 5:
-            ymd = curr.isoformat()
-            
-            # 시세 파일 확인
-            price_path = PROJECT_ROOT / "iceage" / "data" / "raw" / f"kr_prices_{ymd}.csv"
-            if price_path.exists():
-                print(f"[{ymd}] 괴리율 계산 실행...")
-                try:
-                    # volume_anomaly_v2 실행
-                    cmd = [sys.executable, "-m", "iceage.src.analyzers.volume_anomaly_v2", ymd]
-                    subprocess.run(cmd, check=True)
-                except subprocess.CalledProcessError:
-                    print(f"  ❌ {ymd} 계산 실패 (데이터 부족 등)")
-                except Exception as e:
-                    print(f"  ❌ {ymd} 에러: {e}")
-            else:
-                print(f"[{ymd}] ⚠️ 시세 파일 없음 (Skip)")
-        
-        curr += timedelta(days=1)
+# 의존성 임포트
+from iceage.src.analyzers.volume_anomaly_v2 import run_volume_anomaly_v2
 
-    print("✅ 작업 완료")
+def run_force_generate(days: int):
+    """지정된 일수만큼 'volume_anomaly_v2' 파일을 강제로 다시 생성합니다."""
+    print(f"🔄 [Force Generate] 최근 {days}일치 'volume_anomaly_v2' 파일을 생성합니다.")
+    today = date.today()
+    
+    date_range = [today - timedelta(days=i) for i in range(1, days + 1)]
+    
+    for target_date in tqdm(date_range, desc="Generating Anomaly Files"):
+        target_date_str = target_date.strftime("%Y-%m-%d")
+        
+        # 원본 시세 파일이 있는지 확인
+        raw_price_file = PROJECT_ROOT / "iceage" / "data" / "raw" / f"kr_prices_{target_date_str}.csv"
+        if not raw_price_file.exists():
+            # tqdm 진행률 바에 직접 출력
+            tqdm.write(f"⚠️ [Skip] {target_date_str}: 원본 시세 파일({raw_price_file.name})이 없어 건너뜁니다.")
+            continue
+            
+        try:
+            run_volume_anomaly_v2(target_date)
+        except Exception as e:
+            tqdm.write(f"❌ [ERROR] {target_date_str} 처리 중 오류 발생: {e}")
 
 if __name__ == "__main__":
-    # 2023-03-01부터 2023-10-04까지 빈 구간을 채웁니다.
-    # (1월 데이터부터 있다면 60일 윈도우 고려해 3월부터 돌리는 게 안전)
-    run_force_generation("2023-03-01", "2023-10-05")
+    days_to_run = int(sys.argv[1]) if len(sys.argv) > 1 else 60
+    run_force_generate(days_to_run)
+    print("✅ 모든 작업이 완료되었습니다.")

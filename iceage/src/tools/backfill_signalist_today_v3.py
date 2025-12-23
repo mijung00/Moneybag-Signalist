@@ -31,51 +31,30 @@ def run_backfill(days=180):
         # 전략 실행
         try:
             selector = StrategySelector(date_str)
-            selected = selector.select_targets()
-        except:
+            results = selector.select_targets()
+        except Exception as e:
+            tqdm.write(f"⚠️ [Skip] {date_str}: 전략 실행 중 오류 발생 - {e}")
             continue
         
-        final_picks = []
+        # 뉴스레터와 동일한 로직으로 최종 5개 종목 선정
+        candidates = []
         
-        # 1. Sell Signal (Overheat Short) - Max 1
-        sells = selected.get("overheat_short", [])
-        if sells:
-            best_sell = sorted(sells, key=lambda x: x['tv_z'], reverse=True)[0]
-            best_sell['strategy'] = 'overheat_short'
-            final_picks.append(best_sell)
-            
-        # 2. Buy Signals
-        buys_pool = []
+        # 1. '매수 우위' 전략 종목들을 후보에 추가
         for k in ["kings_shadow", "panic_buying", "fallen_angel"]:
-            for item in selected.get(k, []):
+            for item in results.get(k, []):
                 item['strategy'] = k
-                buys_pool.append(item)
+                candidates.append(item)
         
-        # 슬롯 채우기 (매수 4개 + 매도 1개)
-        slots_left = 5 - len(final_picks)
-        if slots_left > 0 and buys_pool:
-            kings = [x for x in buys_pool if x['strategy'] == 'kings_shadow']
-            panics = [x for x in buys_pool if x['strategy'] == 'panic_buying']
-            fallens = [x for x in buys_pool if x['strategy'] == 'fallen_angel']
-            
-            kings.sort(key=lambda x: x.get('rsi_14', 0), reverse=True)
-            panics.sort(key=lambda x: x.get('chg', 0)) 
-            fallens.sort(key=lambda x: x.get('chg', 0))
-            
-            candidates = []
-            if kings: candidates.append(kings.pop(0))
-            if panics: candidates.append(panics.pop(0))
-            if fallens: candidates.append(fallens.pop(0))
-            
-            while len(candidates) < slots_left:
-                if not (kings or panics or fallens): break
-                if kings: candidates.append(kings.pop(0))
-                if len(candidates) >= slots_left: break
-                if panics: candidates.append(panics.pop(0))
-                if len(candidates) >= slots_left: break
-                if fallens: candidates.append(fallens.pop(0))
-            
-            final_picks.extend(candidates[:slots_left])
+        # 2. '매도 우위' 전략 종목 중 괴리율이 가장 높은 1개만 후보에 추가
+        sells = results.get("overheat_short", [])
+        if sells:
+            best_sell = sorted(sells, key=lambda x: abs(float(x.get('tv_z', 0))), reverse=True)[0]
+            best_sell['strategy'] = 'overheat_short'
+            candidates.append(best_sell)
+
+        # 3. 전체 후보군을 괴리율(tv_z) 절대값 기준으로 정렬하여 상위 5개 선정
+        candidates.sort(key=lambda x: abs(float(x.get('tv_z', 0))), reverse=True)
+        final_picks = candidates[:5]
             
         # 3. 로그 포맷 변환 (뉴스레터 호환 스키마 적용)
         for p in final_picks:
