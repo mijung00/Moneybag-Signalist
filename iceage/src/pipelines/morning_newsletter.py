@@ -624,7 +624,8 @@ def _get_internal_events(ref_date: str) -> dict[str, str]:
                         keyword = _extract_keyword_from_title(title, name)
                         if keyword and keyword != "-":
                             event_map[name] = keyword
-            except: continue
+            # [개선] 무분별한 예외 처리를 방지하고, JSON 파싱 오류만 대상으로 지정
+            except json.JSONDecodeError: continue
     return event_map
 
 def section_market_thermometer(ref_date: str) -> str:
@@ -1003,8 +1004,6 @@ def log_signalist_today(ref_date: str, rows: list, force: bool = True) -> None:
             }
         new_records.append(d)
         
-    new_records.sort(key=lambda x: abs(x['vol_sigma']), reverse=True)
-    new_records = new_records[:5]
     df_new = pd.DataFrame(new_records)
     
     if out_path.exists():
@@ -1049,7 +1048,10 @@ def main():
     try:
         selector = StrategySelector(ref_date)
         results = selector.select_targets()
+
+        # 뉴스레터와 동일한 로직으로 최종 종목 선정
         candidates = []
+        # 1. '매수 우위' 종목 추가
         for r in results.get('panic_buying', []) + results.get('fallen_angel', []) + results.get('kings_shadow', []):
             r['_sentiment'] = '📈 매수 우위'
             b = r.get('size_bucket')
@@ -1057,11 +1059,17 @@ def main():
             elif b == 'large': r['_insight'] = "대형주 추세 눌림목 포착"
             else: r['_insight'] = "중형주 낙폭 과대 포착"
             candidates.append(r)
-        for r in results.get('overheat_short', []):
-            r['_sentiment'] = '📉 매도 우위'
-            r['_insight'] = "단기 과열권 도달 (고점 경고)"
-            candidates.append(r)
-            
+
+        # 2. '매도 우위' 종목 중 괴리율이 가장 높은 1개만 추가
+        shorts = results.get('overheat_short', [])
+        if shorts:
+            shorts = sorted(shorts, key=lambda x: abs(float(x.get('tv_z', 0))), reverse=True)[:1]
+            for r in shorts:
+                r['_sentiment'] = '📉 매도 우위'
+                r['_insight'] = "단기 과열권 도달 (고점 경고)"
+                candidates.append(r)
+
+        # 3. 전체 후보군을 괴리율 기준으로 정렬하여 최종 5개 선정
         candidates.sort(key=lambda x: abs(float(x.get('tv_z', 0))), reverse=True)
         final_rows = candidates[:5]
         

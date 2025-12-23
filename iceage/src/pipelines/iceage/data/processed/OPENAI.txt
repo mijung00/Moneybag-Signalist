@@ -1,0 +1,25 @@
+OPENAI_API_KEY=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
+
+
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/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
+SLACK_CHANNEL_NAME=#iceage-alerts   # 선택 (메시지 텍스트용)
+
+
+Secret Key
+dN16wRG5EfCAh1Q0j4bvIHLJXhFw3k2TriftvJmc1TYD7qkZUIjSraQeJcDIz9dq
+
+API Key
+ci9i66aMaMSCDDcdQ3hzHz1JIGgjz78AwSNd4PgTD60Om2rerKveCNSDkwUtX8ZP
+
+
+u secret key
+
+Wk5e4zz8wT1XM3shGqpDG9Cnlj7d3cSGewpO9Nl5
+
+u access key
+0B7NKJuurK5hGRdfEYrdO2WUhXL5qpLuIoryQArS
+
+telegram
+Use this token to access the HTTP API:
+8376181654:AAGZFZUVXxMHrIfIb36RHPSTDbRhIJv62UM
+Keep your token secure and store it safely, it can be used by anyone to control your bot.

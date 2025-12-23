@@ -145,46 +145,36 @@ def main() -> None:
     # [수정] 로컬 경로는 'iceage/'를 빼야 함 (PROJECT_ROOT가 이미 iceage 폴더임)
     log_file_local = "data/processed/signalist_today_log.csv" 
     
-    # [유지] S3 키는 버킷 구조상 'iceage/'가 붙어 있는 게 맞음 (확인 필요)
     log_file_s3 = "iceage/data/processed/signalist_today_log.csv"
     
     # 로컬 폴더 생성 (data/processed)
     (PROJECT_ROOT / "data/processed").mkdir(parents=True, exist_ok=True)
     
     full_log_path = PROJECT_ROOT / log_file_local
-    
-    if s3.download_file(log_file_s3, str(full_log_path)):
-        print(f"   ✅ 로그 파일 다운로드 완료: {log_file_local}")
-    else:
-        print(f"   ⚠️ [Skip] 로그 파일 없음 (첫 실행이거나 S3에 없음)")
+    s3.download_file(log_file_s3, str(full_log_path)) # 실패해도 괜찮음
 
     # 2. 괴리율 분석(volume_anomaly)을 위한 과거 시세 데이터 (최근 60일치)
-    LOOKBACK_DAYS = 60
-    
-    # [수정] 여기도 로컬 경로는 'data/raw'로 설정
-    (PROJECT_ROOT / "data/raw").mkdir(parents=True, exist_ok=True)
+    local_raw_dir = PROJECT_ROOT / "data/raw"
+    local_raw_dir.mkdir(parents=True, exist_ok=True)
+    s3_raw_dir = f"s3://{s3.bucket_name}/iceage/data/raw/"
 
-    print(f"   👉 과거 {LOOKBACK_DAYS}일치 시세 데이터 확인 및 다운로드...")
-    
-    dn_count = 0
-    for i in range(1, LOOKBACK_DAYS + 1):
-        past_date = ref - timedelta(days=i)
-        past_str = past_date.isoformat()
+    # [개선] 전체 동기화 대신, 필요한 최근 60일치 파일만 특정하여 동기화
+    LOOKBACK_DAYS = 60 # volume_anomaly_v2.py에서 사용하는 window_days
+    print(f"   👉 과거 {LOOKBACK_DAYS}일치 시세 데이터 동기화 (aws s3 sync --include)...")
+    try:
+        sync_cmd = ["aws", "s3", "sync", s3_raw_dir, str(local_raw_dir), "--exclude", "*", "--quiet"]
         
-        filename = f"kr_prices_{past_str}.csv"
-        
-        # [수정] PROJECT_ROOT + "data/raw"
-        local_path = PROJECT_ROOT / "data/raw" / filename
-        
-        # [유지] S3 경로는 iceage/data/raw
-        s3_path = f"iceage/data/raw/{filename}"
-        
-        # 로컬에 없으면 다운로드 시도
-        if not local_path.exists():
-            if s3.download_file(s3_path, str(local_path)):
-                dn_count += 1
+        # 필요한 파일 목록을 --include 옵션으로 추가
+        for i in range(LOOKBACK_DAYS + 1): # ref_date 당일 포함 ~ 60일 전
+            past_date = ref - timedelta(days=i)
+            filename = f"kr_prices_{past_date.isoformat()}.csv"
+            sync_cmd.extend(["--include", filename])
 
-    print(f"✅ [S3 Sync] 완료 (신규 다운로드: {dn_count}개)")
+        subprocess.run(sync_cmd, check=True, timeout=300) # 5분 타임아웃
+    except Exception as e:
+        print(f"⚠️ [S3 Sync] 'aws s3 sync' 실패. runner 환경에 aws-cli가 필요합니다. 에러: {e}")
+
+    print(f"✅ [S3 Sync] 완료")
     # ====================================================
 
     freeze_hist = os.getenv("FREEZE_HISTORICAL_KR", "1") == "1"
@@ -438,10 +428,10 @@ def main() -> None:
     # [실사용] recent_days=2 (최근 2~3일치)
     BACKUP_DAYS = 2 
     
-    # 1. iceage/data 폴더
+    # 1. iceage/data 폴더 (raw, processed, reference 포함)
     s3.upload_directory(str(DATA_DIR), "iceage/data", recent_days=BACKUP_DAYS)
 
-    # 2. iceage/out 폴더
+    # 2. iceage/out 폴더 (뉴스레터 마크다운 등)
     out_dir = PROJECT_ROOT / "out"
     if out_dir.exists():
         s3.upload_directory(str(out_dir), "iceage/out", recent_days=BACKUP_DAYS)
