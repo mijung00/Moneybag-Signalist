@@ -27,6 +27,9 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 # [추가] 파이썬의 print 출력이 버퍼링 없이 즉시 로그에 기록되도록 설정 (디버깅에 필수)
 export PYTHONUNBUFFERED="1"
 
+# [추가] 시스템 로거(journald)가 텍스트를 올바르게 해석하도록 로케일 설정
+export LANG=en_US.UTF-8
+
 echo "✅ PYTHONPATH 설정 완료: $PYTHONPATH"
 echo "🦅 [Watchdog Wrapper] watchdogs.py 실행 중... ($PYTHON)"
 

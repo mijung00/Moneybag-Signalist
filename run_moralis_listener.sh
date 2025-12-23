@@ -17,9 +17,16 @@ if [ -z "$VENV_DIR" ] || [ ! -x "$VENV_DIR/bin/python" ]; then
   exit 1
 fi
 PYTHON="$VENV_DIR/bin/python"
+GUNICORN="$VENV_DIR/bin/gunicorn"
 
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 # [추가] 파이썬의 print 출력이 버퍼링 없이 즉시 로그에 기록되도록 설정 (디버깅에 필수)
 export PYTHONUNBUFFERED=1
 
-exec "$PYTHON" -m moneybag.src.analyzers.moralis_listener
+# [추가] 시스템 로거(journald)가 텍스트를 올바르게 해석하도록 로케일 설정
+export LANG=en_US.UTF-8
+
+# [수정] 개발용 Flask 서버 대신, 안정적인 Gunicorn으로 서비스를 실행합니다.
+# --workers 1: 단일 프로세스로 실행 (Webhook 수신에는 충분)
+# --bind 0.0.0.0:5001: 모든 네트워크에서 5001 포트로 요청을 받음
+exec "$GUNICORN" --workers 1 --bind 0.0.0.0:5001 moneybag.src.analyzers.moralis_listener:app
