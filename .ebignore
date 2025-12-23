@@ -1,0 +1,7 @@
+*.git
+*.github
+venv/
+__pycache__/
+*.csv
+*.jsonl
+iceage/src/pipelines/iceage/data/

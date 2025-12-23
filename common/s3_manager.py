@@ -156,8 +156,9 @@ class S3Manager:
 
                 # S3 경로 계산 (상대 경로 유지)
                 relative_path = os.path.relpath(local_path, local_dir)
-                # [버그 수정] os.path.join 대신 URL 스타일로 경로를 명시적으로 조합하여 윈도우/리눅스 호환성 문제 해결
-                s3_path = f"{s3_prefix}/{relative_path.replace('\\', '/')}"
+                # [버그 수정] f-string 내 역슬래시 사용으로 인한 SyntaxError 해결
+                sanitized_relative_path = relative_path.replace('\\', '/')
+                s3_path = f"{s3_prefix}/{sanitized_relative_path}"
 
                 if self.upload_file(local_path, s3_path):
                     count += 1

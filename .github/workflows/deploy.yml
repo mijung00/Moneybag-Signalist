@@ -10,13 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. 깃허브에 있는 코드 내려받기 (데이터 파일 없음)
+    # 1. 깃허브에 있는 코드 내려받기
     - name: Checkout source code
       uses: actions/checkout@v3
 
-    # 2. 배포용 압축파일 만들기 (git 관련 파일 제외)
+    # 2. 배포용 압축파일 만들기
+    # -x 옵션을 통해 데이터 파일, 환경변수, 캐시 등을 확실히 제외합니다.
     - name: Generate deployment package
-      run: zip -r deploy.zip . -x "*.git*" "*.github*" "venv/*" "__pycache__/*" "*.DS_Store"
+      run: |
+        zip -r deploy.zip . \
+        -x "*.git*" \
+        -x "*.github*" \
+        -x "venv/*" \
+        -x "__pycache__/*" \
+        -x "*.DS_Store" \
+        -x "**/data/*" \
+        -x "*.csv" \
+        -x "*.jsonl"
 
     # 3. AWS Elastic Beanstalk으로 배포 쏘기 🚀
     - name: Deploy to EB
@@ -24,10 +34,10 @@ jobs:
       with:
         aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        application_name: fincore_ds                # ⚠️ AWS 콘솔에 있는 '애플리케이션 이름' 확인 후 수정!
-        environment_name: Fincoreds-env-1             # ⚠️ AWS 콘솔에 있는 '환경 이름' 확인 후 수정!
-        version_label: ${{ github.sha }}          # 버전 라벨 (커밋 해시값 사용)
-        region: ap-northeast-2                    # 서울 리전
+        application_name: fincore_ds
+        environment_name: Fincoreds-env-1
+        version_label: ${{ github.sha }}
+        region: ap-northeast-2
         deployment_package: deploy.zip
-        wait_for_deployment: true     # 배포가 끝날 때까지 기다림
-        wait_for_environment_recovery: 300 # ✅ 30초에서 300초(5분)로 연장
+        wait_for_deployment: true
+        wait_for_environment_recovery: 300
