@@ -17,7 +17,7 @@
     <div class="relative">
         <!-- 블러 처리된 배경 콘텐츠 -->
         {% if content_html %}
-        <div class="prose prose-lg max-w-none blur-sm select-none opacity-50">
+        <div class="blur-sm select-none opacity-50">
             {{ content_html|safe }}
         </div>
         {% else %}
@@ -54,7 +54,7 @@
     </div>
 {% elif content_html %}
     <!-- 리포트 본문 -->
-    <div class="prose prose-lg max-w-none">
+    <div>
         {{ content_html|safe }}
     </div>
 

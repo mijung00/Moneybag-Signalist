@@ -153,11 +153,21 @@ def get_db_connection():
         charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
     )
 
-def clean_html_content(raw_html):
-    """S3 HTML에서 <body> 태그 내부만 추출 (스타일 격리용)"""
+def clean_html_content(raw_html: str) -> str | None:
+    """S3 HTML에서 <body> 태그 내부를 추출하고, 이메일 푸터를 제거합니다."""
     if not raw_html: return None
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
-    return body_match.group(1) if body_match else raw_html
+    content = body_match.group(1) if body_match else raw_html
+
+    # 이메일 푸터 테이블 제거 ("더 이상 수신을..." 과 "(주)비제이유앤아이" 포함)
+    # 두 개의 패턴으로 나누어 더 안정적으로 제거
+    patterns_to_remove = [
+        re.compile(r'<table[^>]*>.*?더 이상 수신을 원하지 않으시면.*?</table>', re.DOTALL | re.IGNORECASE),
+        re.compile(r'<table[^>]*>.*?\(주\)비제이유앤아이.*?</table>', re.DOTALL | re.IGNORECASE)
+    ]
+    for pattern in patterns_to_remove:
+        content = pattern.sub('', content)
+    return content
 
 def run_script(folder_name, module_path, args=[]):
     """
