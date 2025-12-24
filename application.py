@@ -155,34 +155,40 @@ def get_db_connection():
 
 def clean_html_content(raw_html: str) -> tuple[str, str]:
     """
-    S3 HTML에서 스타일과 본문 내용을 분리, 가독성 보정 및 푸터 제거.
+    S3 HTML에서 스타일과 본문 내용을 분리, 가독성 보정 및 푸터 제거를 수행합니다.
     Returns: A tuple of (styles, body_content).
     """
-    if not raw_html: return None
+    if not raw_html: return (None, None)
 
     # 1. 스타일 추출 및 폰트 보정
     head_match = re.search(r'<head[^>]*>(.*?)</head>', raw_html, re.DOTALL | re.IGNORECASE)
     style_tags = ''
     if head_match:
         original_styles = ''.join(re.findall(r'<style[^>]*>.*?</style>', head_match.group(1), re.DOTALL | re.IGNORECASE))
-        # 얇은 폰트(300)를 보통 굵기(400)로 변경
-        style_tags = re.sub(r'font-weight\s*:\s*300\s*;?', 'font-weight: 400;', original_styles, flags=re.IGNORECASE)
+        # [가독성 개선] 이메일의 font-weight 스타일을 제거하여 브라우저 기본값(Pretendard)을 따르도록 함
+        style_tags = re.sub(r'font-weight\s*:\s*[\d\w-]+\s*;?', '', original_styles, flags=re.IGNORECASE)
 
     # 2. <body>에서 내용 추출
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
     body_content = body_match.group(1) if body_match else raw_html
 
-    # 3. 푸터 제거 (<tr> 또는 <td> 단위로 제거하여 안전성 확보)
-    # 이 방식은 전체 테이블을 날리지 않아 본문 잘림 위험이 없음
-    patterns_to_remove = [
-        re.compile(r'<tr[^>]*>.*?\(주\)비제이유앤아이.*?</tr>', re.DOTALL | re.IGNORECASE),
-        re.compile(r'<tr[^>]*>.*?더 이상 수신을 원하지 않으시면.*?</tr>', re.DOTALL | re.IGNORECASE),
-        # tr이 없는 경우를 대비해 td도 제거
-        re.compile(r'<td[^>]*>.*?\(주\)비제이유앤아이.*?</td>', re.DOTALL | re.IGNORECASE),
-        re.compile(r'<td[^>]*>.*?더 이상 수신을 원하지 않으시면.*?</td>', re.DOTALL | re.IGNORECASE),
-    ]
-    for pattern in patterns_to_remove:
-        body_content = pattern.sub('', body_content)
+    # 3. 푸터 제거 로직 (후방 탐색)
+    # 푸터는 보통 문서 맨 마지막에 있으므로, 뒤에서부터 제거하는 것이 안전합니다.
+    markers = ["(주)비제이유앤아이", "더 이상 수신을 원하지 않으시면"]
+    cut_pos = len(body_content)
+
+    for marker in markers:
+        pos = body_content.rfind(marker) # rfind로 뒤에서부터 찾음
+        if pos != -1:
+            # 마커를 포함하는 가장 가까운 상위 <table> 태그의 시작점을 찾습니다.
+            table_start = body_content.rfind('<table', 0, pos)
+            if table_start != -1:
+                # 발견된 테이블 시작점 중 가장 작은 값(가장 먼저 나오는 푸터 테이블)을 기록
+                cut_pos = min(cut_pos, table_start)
+
+    # 푸터 테이블을 찾았다면, 해당 위치에서부터 끝까지 잘라냅니다.
+    if cut_pos < len(body_content):
+        body_content = body_content[:cut_pos]
 
     return (style_tags, body_content.strip())
 
@@ -494,7 +500,7 @@ def archive_view(service_name, date_str):
         if service_name == 'signalist':
             s3_key = f"iceage/out/Signalist_Daily_{date_str}.html"
             raw_html = get_s3_content_with_cache(s3_key)
-            styles, body = clean_html_content(raw_html)
+            styles, body = clean_html_content(raw_html) if raw_html else (None, None)
             if styles: all_styles.append(styles)
             if body: all_body_parts.append(body)
             
@@ -503,10 +509,10 @@ def archive_view(service_name, date_str):
             night_key = f"moneybag/data/out/Moneybag_Letter_Night_{date_str}.html"
             
             raw_morning_html = get_s3_content_with_cache(morning_key)
-            morning_styles, morning_body = clean_html_content(raw_morning_html)
+            morning_styles, morning_body = clean_html_content(raw_morning_html) if raw_morning_html else (None, None)
             
             raw_night_html = get_s3_content_with_cache(night_key)
-            night_styles, night_body = clean_html_content(raw_night_html)
+            night_styles, night_body = clean_html_content(raw_night_html) if raw_night_html else (None, None)
             
             if morning_styles: all_styles.append(morning_styles)
             if night_styles: all_styles.append(night_styles)
@@ -514,12 +520,19 @@ def archive_view(service_name, date_str):
             if morning_body:
                 all_body_parts.append('<h2>☀️ Morning Report</h2>' + morning_body)
             if night_body:
-                if morning_body: all_body_parts.append('<div style="margin: 80px 0; border-top: 2px dashed #e5e7eb;"></div>')
+                if morning_body: all_body_parts.append('<div style="margin: 60px 0; border-top: 2px dashed #e5e7eb;"></div>')
                 all_body_parts.append('<h2>🌙 Night Report</h2>' + night_body)
 
     if all_body_parts:
         unique_styles = "".join(list(dict.fromkeys(all_styles)))
-        content_html = f"<style>{unique_styles}</style>" + "".join(all_body_parts)
+        
+        # [NEW] 스타일 격리를 위해 전체 HTML 문서를 생성하고, 공유/구독 버튼을 내부에 포함
+        share_buttons_html = render_template('_share_buttons.html')
+        subscribe_cta_html = render_template('_subscribe_cta.html')
+        
+        full_body = "".join(all_body_parts) + share_buttons_html + subscribe_cta_html
+        # [중요] iframe에서 사용할 것이므로, 완전한 HTML 구조를 만듭니다.
+        content_html = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>{unique_styles}</style></head><body>{full_body}</body></html>"
 
     return render_template(
         'archive_view.html',
