@@ -95,3 +95,4 @@ echo "[$(date)] [Runner] using GUNICORN=$GUNICORN"
 # [수정] 개발용 Flask 서버 대신, 안정적인 Gunicorn으로 서비스를 실행합니다.
 # --workers 1: 단일 프로세스로 실행 (Webhook 수신에는 충분)
 # --bind 0.0.0.0:5001: 모든 네트워크에서 5001 포트로 요청을 받음
+exec "$GUNICORN" --workers 1 --bind 0.0.0.0:5001 moneybag.src.analyzers.moralis_listener:app
