@@ -11,11 +11,6 @@ fi
 
 cd "$APP_DIR"
 
-# [NEW] Log redirection for local testing and consistency
-mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
-touch "$LOG" 2>/dev/null || true
-exec >>"$LOG" 2>&1
-
 echo "[$(date)] [Runner] Moralis Listener 서비스 시작..."
 
 # EB가 systemd에서 이미 EnvironmentFile로 환경변수를 주지만,
