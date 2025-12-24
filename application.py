@@ -510,6 +510,10 @@ def archive_view(service_name, date_str):
 @application.route('/insights')
 def insights():
     """인사이트 칼럼 목록 페이지를 렌더링합니다."""
+    # [추가] 데이터가 로드되지 않았을 경우를 위한 디버깅 메시지
+    if not COLUMN_DATA:
+        flash("칼럼 데이터를 불러오는 데 실패했습니다. 서버 로그를 확인하거나 관리자에게 문의해주세요.", "error")
+
     # 전역으로 로드된 데이터에 각 칼럼의 URL을 동적으로 추가합니다.
     columns_with_urls = []
     for col_data in COLUMN_DATA:
@@ -536,6 +540,29 @@ def column_view(slug):
     page_title = f"{column['title']} | Fincore 인사이트"
     page_description = column.get('description', "Fincore의 데이터 기반 인사이트 칼럼입니다.")
     
+    # [NEW] SEO를 위한 구조화된 데이터 (JSON-LD) 생성
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": column['title'],
+        "description": page_description,
+        "image": url_for('static', filename='images/og_image.png', _external=True), # 대표 OG 이미지 사용
+        "datePublished": column['date'],
+        "author": {
+            "@type": "Organization",
+            "name": "Fincore",
+            "url": url_for('index', _external=True)
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": "Fincore",
+            "logo": {
+                "@type": "ImageObject",
+                "url": url_for('static', filename='images/logo.png', _external=True)
+            }
+        }
+    }
+
     # 템플릿 파일이 존재하는지 확인 (안정성 강화)
     template_path = BASE_DIR / "templates" / column['template']
     if not template_path.exists():
@@ -546,7 +573,8 @@ def column_view(slug):
     return render_template(
         column['template'],
         page_title=page_title,
-        page_description=page_description
+        page_description=page_description,
+        structured_data_json=json.dumps(structured_data, ensure_ascii=False)
     )
 
 @application.route('/inquiry', methods=['POST'])

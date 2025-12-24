@@ -15,6 +15,14 @@
     <meta property="og:url" content="{{ request.url }}">
 
     <title>{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 시그널{% endif %}</title>
+
+    <!-- [NEW] SEO: 구조화된 데이터 (JSON-LD) -->
+    {% if structured_data_json %}
+    <script type="application/ld+json">
+    {{ structured_data_json|safe }}
+    </script>
+    {% endif %}
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
