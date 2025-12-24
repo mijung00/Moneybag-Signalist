@@ -14,6 +14,11 @@ fi
 
 cd "$APP_DIR"
 
+# [NEW] Log redirection for local testing and consistency
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+touch "$LOG" 2>/dev/null || true
+exec >>"$LOG" 2>&1
+
 # env 로드
 if [ -f /opt/elasticbeanstalk/deployment/env ]; then
   set -a; . /opt/elasticbeanstalk/deployment/env; set +a
