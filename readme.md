@@ -2,7 +2,7 @@
 
 This project was architected and implemented by **Google's Gemini Code Assist** under the direction of the project owner.
 
-As the project owner, I provided the vision, requirements, and direction. Gemini Code Assist was responsible for the architectural design, code implementation, debugging, and deployment configurations based on my conversational prompts. This repository stands as a testament to the power of collaborative development between a human director and an AI coding partner.
+As the project owner, I provided the vision, requirements, and direction. Gemini Code Assist was responsible for the architectural design, code implementation, debugging, and deployment configurations based on my conversational prompts. This repository stands as a testament to the power of collaborative development between a human director and an AI coding partner!
 
 ---
 
