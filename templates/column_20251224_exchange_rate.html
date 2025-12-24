@@ -8,7 +8,13 @@
             녹아내리는 달러: 조지 소로스가 본 '구조적 딜레마'의 예고편
         </h1>
         <p class="mt-5 max-w-2xl mx-auto text-lg text-gray-500">
-            분석일: 2025년 12월 25일
+            발행일: 2025년 12월 25일
+        </p>
+    </div>
+
+    <div class="mb-10 p-5 bg-gray-50 border-l-4 border-blue-500 rounded-r-lg">
+        <p class="text-sm text-gray-600 leading-relaxed">
+            <strong>알림:</strong> 본 칼럼은 Fincore 편집자가 현재의 주요 경제 이슈에 대하여 <strong>AI 모델인 제미나이(Gemini) 3.0</strong>과 나눈 심층 문답 내용을 바탕으로 작성되었습니다. 시장 데이터에 대한 입체적인 분석과 역사적 사례 재구성에 AI의 통찰력을 활용하였으며, 편집자의 요약을 거쳐 최종 완성되었습니다.
         </p>
     </div>
 
@@ -44,14 +50,31 @@
 
         <h2>결론: 숫자가 아닌 본질을 읽는 눈</h2>
         <p>
-            오늘의 환율 하락에 안도하기보다, 그 이면의 비용을 냉정하게 계산해야 합니다. 시장은 결코 중앙은행의 고심에 자비를 베풀지 않습니다. 지금 우리에게 필요한 것은 장밋빛 통계 수치가 아니라, <strong>녹아내리는 보유고의 속도를 직시</strong>하며 변화하는 질서 속에서 실질적 생존 전략을 재점검하는 객관적인 시선입니다.
+            오늘의 환율 하락에 안도하기보다, 그 이면에 담긴 비용을 냉정하게 계산해야 합니다. 시장은 결코 중앙은행의 고심에 자비를 베풀지 않습니다. 지금 우리에게 필요한 것은 장밋빛 통계 수치에 안주하는 것이 아니라, <strong>녹아내리는 보유고의 속도를 직시</strong>하며 변화하는 질서 속에서 실질적 생존 전략을 재점검하는 객관적인 시선입니다.
         </p>
-        <p class="text-right text-gray-400 italic">
-            본 칼럼은 거시 경제 지표 분석을 통해 시장의 구조적 원리를 이해하고자 작성되었습니다.
+        
+        <hr class="my-8 border-gray-200">
+        
+        <p class="text-sm text-gray-500">
+            ※ 본 리포트는 다층적인 시장 국면 분석과 전략적 통찰을 제공하기 위해 AI와의 협업으로 작성되었습니다. 가계부채와 환율 간의 민감한 상관관계를 고려하여 작성되었으며, 특정 정책에 대한 비난보다는 구조적 원리 이해에 초점을 맞추고 있습니다.
         </p>
+
+        <!-- [NEW] 공유하기 버튼 -->
+        {% include '_share_buttons.html' %}
 
         <!-- [NEW] 구독 유도 CTA -->
         {% include '_subscribe_cta.html' %}
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const copyBtn = document.getElementById('copy-link-btn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', copyCurrentUrl);
+    }
+});
+</script>
 {% endblock %}

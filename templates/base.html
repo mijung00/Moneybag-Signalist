@@ -107,18 +107,16 @@
     </header>
 
     <!-- [추가] 플래시 메시지 팝업 렌더링 위치 -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div class="flash-popup-container" id="flash-container">
-                {% for category, message in messages %}
-                    <div class="flash-popup {{ category }}">
-                        <i class="fa-solid {% if category == 'success' %}fa-check-circle{% elif category == 'info' %}fa-paper-plane{% else %}fa-circle-exclamation{% endif %} mr-2"></i>
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
+    <div class="flash-popup-container" id="flash-container" aria-live="polite" aria-atomic="true">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="flash-popup {{ category }}">
+                    <i class="fa-solid {% if category == 'success' %}fa-check-circle{% elif category == 'info' %}fa-paper-plane{% else %}fa-circle-exclamation{% endif %} mr-2"></i>
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endwith %}
+    </div>
 
     <!-- [추가] 헤더 아래에 새로운 서브 네비게이션 메뉴 -->
     <nav class="w-full bg-white border-b border-gray-200 py-3">
@@ -173,15 +171,18 @@
 
     <!-- [추가] 플래시 메시지 자동 숨김 스크립트 -->
     <script>
+        // 서버에서 생성된 플래시 메시지 자동 숨김
         document.addEventListener('DOMContentLoaded', function() {
-            const flashContainer = document.getElementById('flash-container');
-            if (flashContainer) {
+            const popups = document.querySelectorAll('#flash-container .flash-popup');
+            popups.forEach(popup => {
                 setTimeout(() => {
-                    flashContainer.style.transition = 'opacity 0.5s ease-out';
-                    flashContainer.style.opacity = '0';
-                    setTimeout(() => flashContainer.remove(), 500);
+                    if (popup) { // 팝업이 중간에 제거되지 않았는지 확인
+                        popup.style.transition = 'opacity 0.5s ease-out';
+                        popup.style.opacity = '0';
+                        setTimeout(() => popup.remove(), 500);
+                    }
                 }, 4000); // 4초 후에 사라짐
-            }
+            });
         });
 
         // [추가] 아카이브 페이지의 넓은 테이블에 스크롤 안내 문구 추가
@@ -243,5 +244,37 @@
         }
     </script>
 
+    <!-- [NEW] Copy Link Function -->
+    <script>
+        // 클라이언트 사이드 플래시 메시지 표시 함수
+        function showClientSideFlash(message, category = 'success') {
+            const flashContainer = document.getElementById('flash-container');
+            if (!flashContainer) return;
+
+            const popup = document.createElement('div');
+            popup.className = `flash-popup ${category}`;
+            const iconClass = category === 'success' ? 'fa-check-circle' : 'fa-circle-exclamation';
+            popup.innerHTML = `<i class="fa-solid ${iconClass} mr-2"></i> ${message}`;
+            
+            flashContainer.appendChild(popup);
+
+            setTimeout(() => {
+                popup.style.transition = 'opacity 0.5s ease-out';
+                popup.style.opacity = '0';
+                setTimeout(() => popup.remove(), 500);
+            }, 3000); // 3초 후에 사라짐
+        }
+
+        // 현재 URL 복사 함수
+        function copyCurrentUrl() {
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                showClientSideFlash('링크가 클립보드에 복사되었습니다.', 'success');
+            }).catch(err => {
+                console.error('링크 복사 실패:', err);
+                showClientSideFlash('링크 복사에 실패했습니다.', 'error');
+            });
+        }
+    </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

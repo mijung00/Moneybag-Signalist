@@ -153,19 +153,11 @@ def get_db_connection():
         charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
     )
 
-def clean_html_content(raw_html: str) -> str | None:
-    """S3 HTML에서 <body> 태그 내부를 추출하고, 이메일 푸터를 제거합니다."""
+def clean_html_content(raw_html):
+    """S3 HTML에서 <body> 태그 내부만 추출 (스타일 격리용)"""
     if not raw_html: return None
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
-    content = body_match.group(1) if body_match else raw_html
-
-    # 이메일 푸터 테이블 제거 ("더 이상 수신을..." 과 "(주)비제이유앤아이" 포함)
-    footer_pattern = re.compile(
-        r'<table[^>]*>.*?더 이상 수신을 원하지 않으시면.*?\(주\)비제이유앤아이.*?</table>',
-        re.DOTALL | re.IGNORECASE
-    )
-    content = footer_pattern.sub('', content)
-    return content
+    return body_match.group(1) if body_match else raw_html
 
 def run_script(folder_name, module_path, args=[]):
     """
@@ -409,8 +401,8 @@ def index():
     except Exception as e:
         print(f"⚠️ [Recent Items Error] {e}")
 
-    page_title = "FINCORE | 데이터 기반 투자 시그널"
-    page_description = "Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다."
+    page_title = "FINCORE | 데이터 기반 투자 분석"
+    page_description = "Fincore는 데이터 기반의 투자 분석을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다."
     return render_template('index.html', page_title=page_title, page_description=page_description, recent_reports=recent_items)
 
 
@@ -458,13 +450,13 @@ def archive_view(service_name, date_str):
     is_locked = (latest_report_date_str is not None) and (date_str >= latest_report_date_str)
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
     
-    # [추가] SEO를 위한 동적 메타 태그 생성
+    # [수정] SEO를 위한 동적 메타 태그 생성 (용어 변경)
     page_title = f"{display_name} {date_str} 리포트 | FINCORE"
-    page_description = f"{display_name}의 {date_str} 리포트입니다. 주요 시장 분석과 투자 시그널을 확인하세요."
+    page_description = f"{display_name}의 {date_str} 리포트입니다. 주요 시장 분석과 데이터를 확인하세요."
     if service_name == 'signalist':
-        page_description = f"시그널리스트 {date_str} 리포트. 국내 주식 시장의 수급 이상 징후와 변곡점을 포착합니다."
+        page_description = f"시그널리스트 {date_str} 리포트. 국내 주식 시장의 수급 데이터와 변곡점 분석을 제공합니다."
     elif service_name == 'moneybag':
-        page_description = f"웨일헌터 {date_str} 리포트. 암호화폐 시장의 고래 움직임을 추적하여 변동성에 대응합니다."
+        page_description = f"웨일헌터 {date_str} 리포트. 암호화폐 시장의 고래 움직임을 추적하여 변동성에 대응하는 데이터를 제공합니다."
 
 
     content_html = None
