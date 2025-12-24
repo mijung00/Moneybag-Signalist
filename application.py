@@ -154,26 +154,32 @@ def get_db_connection():
     )
 
 def clean_html_content(raw_html: str) -> str | None:
-    """S3 HTML에서 <body> 태그 내부를 추출하고, 이메일 푸터를 안정적으로 제거합니다."""
+    """S3 HTML에서 스타일과 본문 내용을 추출하고, 이메일 푸터를 안정적으로 제거합니다."""
     if not raw_html: return None
-    body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
-    content = body_match.group(1) if body_match else raw_html
 
-    # 이메일 푸터의 시작을 알리는 대표 문구
+    # 1. <head>에서 <style> 태그들 추출 (가독성 유지를 위해 필수)
+    head_match = re.search(r'<head[^>]*>(.*?)</head>', raw_html, re.DOTALL | re.IGNORECASE)
+    style_tags = ''
+    if head_match:
+        style_tags = ''.join(re.findall(r'<style[^>]*>.*?</style>', head_match.group(1), re.DOTALL | re.IGNORECASE))
+
+    # 2. <body>에서 내용 추출
+    body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
+    body_content = body_match.group(1) if body_match else raw_html
+
+    # 3. 푸터 제거 로직 개선
     footer_marker = "더 이상 수신을 원하지 않으시면"
-    
-    # 문구의 위치를 찾습니다.
-    marker_pos = content.find(footer_marker)
+    marker_pos = body_content.find(footer_marker)
     
     if marker_pos != -1:
-        # 문구가 발견되면, 그 문구를 포함하는 가장 가까운 상위 <table> 태그의 시작 위치를 찾습니다.
-        table_start_pos = content.rfind('<table', 0, marker_pos)
-        if table_start_pos != -1:
-            # 테이블 시작 지점부터의 모든 내용을 잘라내고 반환합니다.
-            return content[:table_start_pos]
+        # 푸터 마커를 포함하는 가장 가까운 상위 <table> 태그의 시작점을 찾습니다.
+        table_start_pos = body_content.rfind('<table', 0, marker_pos)
+        # 안전장치: 찾은 테이블이 콘텐츠의 전반부(상위 50%)에서 시작하면 메인 컨테이너로 간주하고 제거하지 않습니다.
+        if table_start_pos != -1 and table_start_pos > (len(body_content) * 0.5):
+            body_content = body_content[:table_start_pos]
 
-    # 마커를 찾지 못한 경우, 원본 콘텐츠를 반환합니다.
-    return content
+    # 4. 스타일과 본문 내용 합치기
+    return f"{style_tags}{body_content}"
 
 def run_script(folder_name, module_path, args=[]):
     """
