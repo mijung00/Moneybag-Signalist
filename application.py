@@ -627,6 +627,13 @@ def sitemap_xml():
         for url in sorted(list(moneybag_urls), reverse=True):
             dynamic_urls.append({'loc': url})
 
+    # 3. [NEW] 인사이트 칼럼 페이지 추가
+    if COLUMN_DATA:
+        for column in COLUMN_DATA:
+            dynamic_urls.append({
+                'loc': url_for('column_view', slug=column['slug'], _external=True)
+            })
+
     all_urls = static_urls + dynamic_urls
     
     # 3. XML 템플릿 렌더링
@@ -709,7 +716,8 @@ def unsubscribe(service_name, token):
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
     return render_template('unsubscribe.html', token=token, email=email, service_name=service_name, display_name=display_name)
 
+# 애플리케이션 시작 시 칼럼 데이터 로드 (모듈 임포트 시점에 실행)
+load_column_data()
+
 if __name__ == '__main__':
-    # 애플리케이션 시작 시 칼럼 데이터 로드
-    load_column_data()
     application.run(port=5000, debug=True)
