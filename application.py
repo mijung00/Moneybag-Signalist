@@ -154,19 +154,25 @@ def get_db_connection():
     )
 
 def clean_html_content(raw_html: str) -> str | None:
-    """S3 HTML에서 <body> 태그 내부를 추출하고, 이메일 푸터를 제거합니다."""
+    """S3 HTML에서 <body> 태그 내부를 추출하고, 이메일 푸터를 안정적으로 제거합니다."""
     if not raw_html: return None
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
     content = body_match.group(1) if body_match else raw_html
 
-    # 이메일 푸터 테이블 제거 ("더 이상 수신을..." 과 "(주)비제이유앤아이" 포함)
-    # 두 개의 패턴으로 나누어 더 안정적으로 제거
-    patterns_to_remove = [
-        re.compile(r'<table[^>]*>.*?더 이상 수신을 원하지 않으시면.*?</table>', re.DOTALL | re.IGNORECASE),
-        re.compile(r'<table[^>]*>.*?\(주\)비제이유앤아이.*?</table>', re.DOTALL | re.IGNORECASE)
-    ]
-    for pattern in patterns_to_remove:
-        content = pattern.sub('', content)
+    # 이메일 푸터의 시작을 알리는 대표 문구
+    footer_marker = "더 이상 수신을 원하지 않으시면"
+    
+    # 문구의 위치를 찾습니다.
+    marker_pos = content.find(footer_marker)
+    
+    if marker_pos != -1:
+        # 문구가 발견되면, 그 문구를 포함하는 가장 가까운 상위 <table> 태그의 시작 위치를 찾습니다.
+        table_start_pos = content.rfind('<table', 0, marker_pos)
+        if table_start_pos != -1:
+            # 테이블 시작 지점부터의 모든 내용을 잘라내고 반환합니다.
+            return content[:table_start_pos]
+
+    # 마커를 찾지 못한 경우, 원본 콘텐츠를 반환합니다.
     return content
 
 def run_script(folder_name, module_path, args=[]):
