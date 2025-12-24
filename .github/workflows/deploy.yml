@@ -28,7 +28,8 @@ jobs:
         -x "__pycache__/*" \
         -x "*.DS_Store" \
         -x ".env" \
-        -x "**/data/*" \
+        -x "iceage/data/*" \
+        -x "moneybag/data/*" \
         -x "*.csv" \
         -x "*.jsonl"
 

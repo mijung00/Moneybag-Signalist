@@ -114,9 +114,10 @@
 
     <!-- [추가] 헤더 아래에 새로운 서브 네비게이션 메뉴 -->
     <nav class="w-full bg-white border-b border-gray-200 py-3">
-        <div class="max-w-3xl mx-auto flex justify-center items-center space-x-2 px-4">
+        <div class="max-w-3xl mx-auto flex justify-center items-center space-x-1 sm:space-x-2 px-4">
             <a href="/archive/signalist" class="px-4 py-2 rounded-full text-sm font-semibold transition-colors {% if 'signalist' in request.path %}bg-gray-900 text-white shadow-sm{% else %}text-gray-500 hover:bg-gray-100 hover:text-gray-900{% endif %}">The Signalist</a>
             <a href="/archive/moneybag" class="px-4 py-2 rounded-full text-sm font-semibold transition-colors {% if 'moneybag' in request.path or 'whalehunter' in request.path %}bg-gray-900 text-white shadow-sm{% else %}text-gray-500 hover:bg-gray-100 hover:text-gray-900{% endif %}">The Whale Hunter</a>
+            <a href="{{ url_for('insights') }}" class="px-4 py-2 rounded-full text-sm font-semibold transition-colors {% if 'insights' in request.path or 'column' in request.path %}bg-gray-900 text-white shadow-sm{% else %}text-gray-500 hover:bg-gray-100 hover:text-gray-900{% endif %}">인사이트</a>
         </div>
     </nav>
 

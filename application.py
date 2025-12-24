@@ -112,6 +112,38 @@ def get_s3_content_with_cache(s3_key: str) -> str | None:
         return None
 
 # ----------------------------------------------------------------
+# [2.6] [NEW] 칼럼 데이터 로더 (JSON 기반)
+# ----------------------------------------------------------------
+COLUMN_DATA = []
+COLUMN_DATA_BY_SLUG = {}
+
+def load_column_data():
+    """
+    data/columns.json 파일에서 칼럼 메타데이터를 로드하고, 정렬 후 캐시합니다.
+    """
+    global COLUMN_DATA, COLUMN_DATA_BY_SLUG
+    try:
+        json_path = BASE_DIR / "data" / "columns.json"
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 날짜를 기준으로 최신순으로 정렬하고, 표시용 날짜 문자열 추가
+        for item in data:
+            dt = datetime.strptime(item['date'], '%Y-%m-%d')
+            item['date_obj'] = dt
+            item['date_str'] = dt.strftime('%Y년 %m월 %d일')
+
+        data.sort(key=lambda x: x['date_obj'], reverse=True)
+        
+        COLUMN_DATA = data
+        COLUMN_DATA_BY_SLUG = {item['slug']: item for item in data}
+        print("✅ [Columns] 인사이트 칼럼 데이터 로드 완료.")
+    except FileNotFoundError:
+        print("⚠️ [Columns] data/columns.json 파일을 찾을 수 없습니다. 칼럼 기능이 비활성화됩니다.")
+    except Exception as e:
+        print(f"❌ [Columns] 칼럼 데이터 로드 중 오류 발생: {e}")
+
+# ----------------------------------------------------------------
 # [3] 헬퍼 함수들 (DB연결, 스크립트 실행, HTML 정제)
 # ----------------------------------------------------------------
 def get_db_connection():
@@ -323,34 +355,55 @@ def index():
         return redirect(redirect_url)
 
     # GET 요청
-    # [추가] 최근 리포트 정보 가져오기
-    recent_reports = []
+    # [수정] 최근 콘텐츠(리포트 + 칼럼) 정보 가져오기 및 정렬
+    recent_items = []
     try:
-        # 시그널리스트 최신 리포트
-        signalist_latest_date = get_latest_report_date('signalist')
-        if signalist_latest_date:
-            recent_reports.append({
-                'service_name': 'signalist',
+        # 1. 시그널리스트 최신 리포트
+        signalist_latest_date_str = get_latest_report_date('signalist')
+        if signalist_latest_date_str:
+            date_obj = datetime.strptime(signalist_latest_date_str, "%Y-%m-%d")
+            recent_items.append({
                 'display_name': 'The Signalist',
-                'date_str': signalist_latest_date,
-                'url': url_for('archive_view', service_name='signalist', date_str=signalist_latest_date)
+                'title': f"The Signalist 리포트",
+                'date_obj': date_obj,
+                'date_str': date_obj.strftime('%Y-%m-%d'),
+                'service_name': 'signalist',
+                'url': url_for('archive_view', service_name='signalist', date_str=signalist_latest_date_str)
             })
         
-        # 웨일헌터 최신 리포트
-        moneybag_latest_date = get_latest_report_date('moneybag')
-        if moneybag_latest_date:
-            recent_reports.append({
-                'service_name': 'moneybag',
+        # 2. 웨일헌터 최신 리포트
+        moneybag_latest_date_str = get_latest_report_date('moneybag')
+        if moneybag_latest_date_str:
+            date_obj = datetime.strptime(moneybag_latest_date_str, "%Y-%m-%d")
+            recent_items.append({
                 'display_name': 'The Whale Hunter',
-                'date_str': moneybag_latest_date,
-                'url': url_for('archive_view', service_name='moneybag', date_str=moneybag_latest_date)
+                'title': f"The Whale Hunter 리포트",
+                'date_obj': date_obj,
+                'date_str': date_obj.strftime('%Y-%m-%d'),
+                'service_name': 'moneybag',
+                'url': url_for('archive_view', service_name='moneybag', date_str=moneybag_latest_date_str)
             })
+
+        # 3. 인사이트 최신 칼럼
+        if COLUMN_DATA:
+            latest_column = COLUMN_DATA[0] # 데이터 로드 시 이미 최신순으로 정렬됨
+            recent_items.append({
+                'display_name': '인사이트',
+                'title': latest_column['title'],
+                'date_obj': latest_column['date_obj'],
+                'date_str': latest_column['date_obj'].strftime('%Y-%m-%d'), # 표시 형식 통일
+                'service_name': 'insights',
+                'url': url_for('column_view', slug=latest_column['slug'])
+            })
+        
+        # 4. 모든 아이템을 날짜순으로 정렬 (최신순)
+        recent_items.sort(key=lambda x: x['date_obj'], reverse=True)
     except Exception as e:
-        print(f"⚠️ [Recent Reports Error] {e}")
+        print(f"⚠️ [Recent Items Error] {e}")
 
     page_title = "FINCORE | 데이터 기반 투자 시그널"
     page_description = "Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다."
-    return render_template('index.html', page_title=page_title, page_description=page_description, recent_reports=recent_reports)
+    return render_template('index.html', page_title=page_title, page_description=page_description, recent_reports=recent_items)
 
 
 def get_latest_report_date(service_name: str) -> str | None:
@@ -446,6 +499,52 @@ def archive_view(service_name, date_str):
         next_date=next_date,
         is_locked=is_locked,
         today_str=datetime.now().strftime("%Y-%m-%d"),
+        page_title=page_title,
+        page_description=page_description
+    )
+
+
+# ================================================================
+# 🌐 [PART B-2] [NEW] 인사이트 칼럼 라우트
+# ================================================================
+@application.route('/insights')
+def insights():
+    """인사이트 칼럼 목록 페이지를 렌더링합니다."""
+    # 전역으로 로드된 데이터에 각 칼럼의 URL을 동적으로 추가합니다.
+    columns_with_urls = []
+    for col_data in COLUMN_DATA:
+        col = col_data.copy() # 원본 수정을 방지하기 위해 복사
+        col['url'] = url_for('column_view', slug=col['slug'])
+        columns_with_urls.append(col)
+
+    return render_template(
+        'insights.html', 
+        columns=columns_with_urls, 
+        page_title="Fincore 인사이트",
+        page_description="데이터와 시장에 대한 깊이 있는 분석과 전망을 공유합니다."
+    )
+
+@application.route('/column/<slug>')
+def column_view(slug):
+    """슬러그(slug)를 기반으로 개별 칼럼 상세 페이지를 렌더링합니다."""
+    column = COLUMN_DATA_BY_SLUG.get(slug)
+    
+    if not column:
+        flash("요청하신 칼럼을 찾을 수 없습니다.", "error")
+        return redirect(url_for('insights'))
+
+    page_title = f"{column['title']} | Fincore 인사이트"
+    page_description = column.get('description', "Fincore의 데이터 기반 인사이트 칼럼입니다.")
+    
+    # 템플릿 파일이 존재하는지 확인 (안정성 강화)
+    template_path = BASE_DIR / "templates" / column['template']
+    if not template_path.exists():
+        print(f"❌ [Template Error] 칼럼 템플릿 파일을 찾을 수 없습니다: {column['template']}")
+        flash("페이지를 표시하는 중 오류가 발생했습니다.", "error")
+        return redirect(url_for('insights'))
+
+    return render_template(
+        column['template'],
         page_title=page_title,
         page_description=page_description
     )
@@ -611,4 +710,6 @@ def unsubscribe(service_name, token):
     return render_template('unsubscribe.html', token=token, email=email, service_name=service_name, display_name=display_name)
 
 if __name__ == '__main__':
+    # 애플리케이션 시작 시 칼럼 데이터 로드
+    load_column_data()
     application.run(port=5000, debug=True)
