@@ -4,4 +4,5 @@ venv/
 __pycache__/
 *.csv
 *.jsonl
-iceage/src/pipelines/iceage/data/
+iceage/data/
+moneybag/data/
