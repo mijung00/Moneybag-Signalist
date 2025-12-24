@@ -973,13 +973,22 @@ def section_footer() -> str:
 
 def render_newsletter(ref_date: str) -> str:
     bundle = _ensure_llm_bundle(ref_date)
-    topic = bundle.get("mind_topic", "")  # AI가 생성한 투자자 마인드 토픽
-    body = bundle.get("mind_body", "")   # AI가 생성한 투자자 마인드 본문
+    topic = bundle.get("mind_topic", "")
+    body = bundle.get("mind_body", "")
+
+    # [수정] section_signalist_history 호출을 try-except로 감싸서 안정성 강화
+    history_section = ""
+    try:
+        history_section = section_signalist_history(ref_date)
+    except Exception as e:
+        logging.warning(f"[Render] '명예의 전당' 섹션 생성 실패: {e}")
+        history_section = "## 🏆 Signalist 명예의 전당\n\n> _과거 시그널 데이터 분석 중 오류가 발생하여, 오늘은 명예의 전당을 쉬어갑니다._"
+
     parts = [
         section_header_intro(ref_date),
         section_market_thermometer(ref_date),
         section_signalist_today(ref_date),
-        section_signalist_history(ref_date),
+        history_section,
         section_themes(ref_date),
         # IPO 섹션 제거
         section_global_minute(ref_date),
@@ -1057,30 +1066,9 @@ def main():
     try:
         selector = StrategySelector(ref_date)
         results = selector.select_targets()
-
-        # 뉴스레터와 동일한 로직으로 최종 종목 선정
-        candidates = []
-        # 1. '매수 우위' 종목 추가
-        for r in results.get('panic_buying', []) + results.get('fallen_angel', []) + results.get('kings_shadow', []):
-            r['_sentiment'] = '📈 매수 우위'
-            b = r.get('size_bucket')
-            if b == 'small': r['_insight'] = "소형주 수급 변곡점 포착"
-            elif b == 'large': r['_insight'] = "대형주 추세 눌림목 포착"
-            else: r['_insight'] = "중형주 낙폭 과대 포착"
-            candidates.append(r)
-
-        # 2. '매도 우위' 종목 중 괴리율이 가장 높은 1개만 추가
-        shorts = results.get('overheat_short', [])
-        if shorts:
-            shorts = sorted(shorts, key=lambda x: abs(float(x.get('tv_z', 0))), reverse=True)[:1]
-            for r in shorts:
-                r['_sentiment'] = '📉 매도 우위'
-                r['_insight'] = "단기 과열권 도달 (고점 경고)"
-                candidates.append(r)
-
-        # 3. 전체 후보군을 괴리율 기준으로 정렬하여 최종 5개 선정
-        candidates.sort(key=lambda x: abs(float(x.get('tv_z', 0))), reverse=True)
-        final_rows = candidates[:5]
+        
+        # [수정] 새로운 선정 로직을 적용하여 최종 종목을 선정하고 로그를 남깁니다.
+        final_rows = _select_final_radar_picks(results)
         
         if final_rows:
             log_signalist_today(ref_date, final_rows)

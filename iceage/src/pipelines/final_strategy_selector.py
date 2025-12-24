@@ -83,9 +83,18 @@ class StrategySelector:
         df['ma60'] = grouped['close'].transform(lambda x: x.rolling(60, min_periods=40).mean())
         df['price_60d_ago'] = grouped['close'].transform(lambda x: x.shift(60))
         
-        df['body'] = df['close'] - df['open']
-        df['upper_shadow'] = df['high'] - df[['close', 'open']].max(axis=1)
-        df['shadow_ratio'] = df['upper_shadow'] / df['close'] * 100
+        # [핵심 수정] 윗꼬리 비율(shadow_ratio)을 기준일 데이터로 계산하고, 데이터 누락 시 안전장치 추가
+        if 'open' in df.columns and 'high' in df.columns:
+            # 1. 기준일(현재 행) 데이터로 윗꼬리(upper_shadow) 계산
+            #    (shift(1)을 사용하지 않음)
+            upper_shadow = (df['high'] - df[['close', 'open']].max(axis=1)).fillna(0)
+            
+            # 2. 기준일 종가 기준으로 윗꼬리 비율(shadow_ratio) 계산
+            df['shadow_ratio'] = np.where(df['close'] > 0, (upper_shadow / df['close']) * 100, 0)
+        else:
+            # 데이터 수집 실패로 open/high 컬럼이 없으면, King's Shadow 전략이 발동하지 않도록
+            # shadow_ratio를 매우 큰 값으로 설정
+            df['shadow_ratio'] = 999.0  # 'shadow_ratio < 2.0' 조건에 걸리지 않도록 큰 값으로 설정
 
         # 2. [New] Silent Titan 지표 (Volatility, RSI)
         df['daily_ret'] = grouped['close'].pct_change()
