@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+import json
 
 # 모듈 임포트
 from moneybag.src.collectors.cex_price_collector import CexPriceCollector
@@ -152,25 +153,50 @@ class DailyNewsletter:
                 table_str += f"| **{coin}** | ${data['price']:,.0f} | 🟢 **${data['s1']:,.0f}** | 🔴 **${data['r1']:,.0f}** | {trend} |\n"
         return table_str
 
-    def get_market_sentiment_display(self):
+    def get_market_sentiment_display(self, regime_info: dict):
         data = self.onchain_collector.get_whale_ammo()
         if not data: return "데이터 수집 실패"
-        curr = data['current']['value']
-        status = data['current']['status']
+        
+        raw_score = data['current']['value']
+        main_regime = regime_info.get('main_regime', 'Range')
+
+        # [NEW] 국면 보정 로직
+        explanation_note = ""
+        if main_regime == 'Bear':
+            # 하락장에서는 실제 점수 10~50점 사이를 0~100점으로 재조정하여 상대적 위치를 표시
+            rescaled_score = ((raw_score - 10) / (50 - 10)) * 100
+            display_score = max(0, min(100, int(rescaled_score)))
+            explanation_note = "\n\n_*🐻 하락장에서는 심리 점수가 낮게 유지되는 경향이 있어, 최근 추세 내에서의 상대적 위치를 보여주도록 보정되었습니다._"
+        elif main_regime == 'Bull':
+            # 상승장에서는 실제 점수 50~90점 사이를 0~100점으로 재조정
+            rescaled_score = ((raw_score - 50) / (90 - 50)) * 100
+            display_score = max(0, min(100, int(rescaled_score)))
+            explanation_note = "\n\n_*🐂 상승장에서는 심리 점수가 높게 유지되는 경향이 있어, 최근 추세 내에서의 상대적 위치를 보여주도록 보정되었습니다._"
+        else: # 횡보장
+            display_score = raw_score
+        
+        # 보정된 점수를 기준으로 상태(status) 재결정
+        if display_score >= 75: status = "극단적 탐욕"
+        elif display_score >= 55: status = "탐욕"
+        elif display_score <= 25: status = "극단적 공포"
+        elif display_score <= 45: status = "공포"
+        else: status = "중립"
+
         hist = data['history']
-        gauge_bar = self.create_sentiment_gauge(curr)
-        diff_day = curr - hist['yesterday']
+        gauge_bar = self.create_sentiment_gauge(display_score)
+        diff_day = raw_score - hist['yesterday']
         icon_day = "🔺" if diff_day > 0 else "🔻"
         explanation = "_*산출 기준: 변동성(25%) + 모멘텀(25%) + SNS(15%) + 도미넌스(10%) + 트렌드(10%)_"
+        
         display = f"""
 ### 🧠 고래 심리 기상도 (Whale Sentiment)
-**현재: {status}**
+**현재: {status} (보정치)**
 {gauge_bar}
-{explanation}
+{explanation}{explanation_note}
 
-* 📉 **전일 대비:** {hist['yesterday']} → {curr} ({icon_day}{abs(diff_day)})
-* 🗓️ **지난주:** {hist['last_week']}
-* 🗓️ **지난달:** {hist['last_month']}
+* 📉 **전일 대비(원본):** {hist['yesterday']} → {raw_score} ({icon_day}{abs(diff_day)})
+* 🗓️ **지난주(원본):** {hist['last_week']}
+* 🗓️ **지난달(원본):** {hist['last_month']}
 """
         return display
 
@@ -213,7 +239,6 @@ class DailyNewsletter:
             if abs(change) >= 2.0: return True, change
         return False, 0
 
-# [수정된 generate 함수 전체]
     def generate(self, mode="morning"):
         print(f"🚀 [{mode.upper()}] 웨일 헌터가 데이터를 분석 중입니다...")
         
@@ -226,15 +251,16 @@ class DailyNewsletter:
         df = pd.DataFrame(ohlcv, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
         
         # 1. [NEW] 레짐 및 서브 국면 분석 (MarketRegimeAnalyzer에게 위임)
+        # [수정] 더 복합적인 국면 정보를 받도록 변경 (대국면, 전술상황, 확신도 등)
         regime_info = self.regime_analyzer.analyze_regime(df)
         
         main_regime = regime_info['main_regime']
         tactical_state = regime_info['tactical_state']
         
         print(f"🧐 현재 시장 국면: {main_regime} | 전술 상황: {tactical_state}")
-
-        sentiment_display = self.get_market_sentiment_display()
-
+ 
+        sentiment_display = self.get_market_sentiment_display(regime_info)
+ 
         is_emergency, change_rate = self.emergency_check()
         # 기본 상황
         headline_context = "특별한 급등락 없음. 전반적인 시장 분위기와 핵심 이슈를 반영할 것."
@@ -243,12 +269,12 @@ class DailyNewsletter:
             type_str = "폭등" if change_rate > 0 else "폭락"
             # 긴급 상황 팩트 전달
             headline_context = f"🚨 [긴급 상황] BTC {change_rate}% {type_str} 발생. 투자자들의 이목을 끌 자극적인 멘트 필요."
-
-        # 2. [NEW] 전략 시뮬레이션 및 봇 선정 (BotTraderSelector에게 위임)
-        # (1) 모든 창의적 전략 생성
+ 
+        # 2. [수정] 전략 생성 및 '오디션'을 통한 사령관 선정
+        # (1) 다양한 계열의 전략들을 모두 생성
         all_strategies = generate_all_strategies(df, regime_info)
         
-        # (2) 현재 국면에 맞는 사령관(Bot) 소환
+        # (2) 새로운 점수 시스템으로 최적 전략과 사령관을 '선출'
         selection_result = self.bot_selector.select_best_strategy(all_strategies, regime_info)
         
         best_strategy = selection_result['selected_strategy']
@@ -258,7 +284,7 @@ class DailyNewsletter:
         
         best_strat_name = best_strategy['name']
         
-        # 3. 데이터 수집 (기존 유지)
+        # 3. 리포트용 데이터 수집 (기존과 동일)
         major_table = self.get_market_metrics(self.targets["Major"])
         meme_table = self.get_market_metrics(self.targets["Meme"])
         tactical_table = self.get_tactical_map(self.targets["Major"])
@@ -271,16 +297,16 @@ class DailyNewsletter:
         for i, strat in enumerate(top_strategies, 1):
             strat_table_str += f"| {i} | {strat['name']} | {strat['type']} | {strat['score']} | {strat['desc']} |\n"
 
-        # 4. 프롬프트 (사령관 페르소나 주입 - 여기가 핵심!)
+        # 4. [수정] LLM 프롬프트 대폭 수정 (새로운 시스템의 논리를 설명하도록)
         system_prompt = f"""
         너는 가상자산 시장의 베테랑 트레이더 '{self.service_name}'야.
         
         [⚠️ 오늘의 작전 명령 (Commander's Order)]
         - **지휘관:** {commander_name} ({commander_desc})
-        - **전술 판단:** {regime_comment}
+        - **오늘의 전술 판단:** {regime_comment}
         - **메인 전략:** "{best_strat_name}" (이 전략을 중심으로 브리핑해라)
         
-        [🎯 헤드라인 작성 미션]  <-- ★ 여기를 추가!
+        [🎯 헤드라인 작성 미션]
         - 현재 상황: {headline_context}
         - 지시: 위 상황을 바탕으로 클릭을 유도하는 가장 자극적이고 매력적인 한 줄 제목을 창작해라. (명령어 자체를 출력하지 말고, 창작된 제목만 출력할 것)
         
@@ -306,8 +332,8 @@ class DailyNewsletter:
              `*Original: [영어 원문 제목] | Source: [매체명] ([시간])*`
         3. **전략 설명:** - 1위 전략인 **[{best_strat_name}]**이 왜 지금 시장에 통하는지 논리적으로 설득해라.
 
-        [출력 양식]
-        # 🐋 [헤드라인] (여기에 위 미션에 따라 창작한 제목을 출력) <-- ★ 여기를 수정!
+        [출력 양식] (아래 구조를 반드시 지켜라)
+        # 🐋 [헤드라인] (여기에 위 미션에 따라 창작한 제목을 출력)
 
         날짜: {today_date} | 시간: {mode.upper()} | 사령관: {commander_name}
 
@@ -325,7 +351,7 @@ class DailyNewsletter:
         > **🗨️ 헌터의 독백:** (김프와 펀딩비, 심리 지수를 보니 시장 참여자들이 쫄아있는지, 흥분했는지 사령관 관점에서 해석)
 
         ## 3. ⚔️ 전술 시뮬레이션 (Strategy Lab)
-        오늘의 전장 상황: **[{main_regime} - {tactical_state}]**
+        오늘의 전장 상황: **대국면: {main_regime} | 전술상황: {tactical_state}**
         {strat_table_str}
         > **💡 헌터의 코멘트:** (오늘 왜 **{commander_name}** 모드로 전환했는지, 그리고 1위 전략이 왜 선택되었는지 설명해라.)
 
@@ -360,26 +386,18 @@ class DailyNewsletter:
         saved_path = self.save_to_file(result_text, today_date, mode)
         return saved_path
 
-
-    # [기존 save_to_file 함수를 이걸로 통째로 교체하세요]
     def save_to_file(self, text, date_str, mode):
-        # 1. 환경 변수 확인 (기본값: prod)
+        """[NEW] dev/prod 환경에 따라 파일명을 분리하여 저장합니다."""
         env_mode = os.getenv("NEWSLETTER_ENV", "prod").lower()
-        
-        # 2. dev 환경이면 파일명 뒤에 '-dev' 붙이기
         suffix = "-dev" if env_mode == "dev" else ""
-        
-        # 예: SecretNote_Morning_2025.12.15-dev.md
         filename = f"SecretNote_{mode.capitalize()}_{date_str}{suffix}.md"
-        
-        # 3. 저장
         save_path = BASE_DIR / "moneybag" / "data" / "out" / filename
         save_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(save_path, "w", encoding="utf-8") as f:
             f.write(text)
             
-        print(f"\n✅ [저장 완료] {filename} (환경: {env_mode})")
+        print(f"✅ [저장 완료] {filename} (환경: {env_mode})")
         return save_path
 
 if __name__ == "__main__":
