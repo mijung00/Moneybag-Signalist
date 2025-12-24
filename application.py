@@ -153,33 +153,38 @@ def get_db_connection():
         charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
     )
 
-def clean_html_content(raw_html: str) -> str | None:
-    """S3 HTML에서 스타일과 본문 내용을 추출하고, 이메일 푸터를 안정적으로 제거합니다."""
+def clean_html_content(raw_html: str) -> tuple[str, str]:
+    """
+    S3 HTML에서 스타일과 본문 내용을 분리, 가독성 보정 및 푸터 제거.
+    Returns: A tuple of (styles, body_content).
+    """
     if not raw_html: return None
 
-    # 1. <head>에서 <style> 태그들 추출 (가독성 유지를 위해 필수)
+    # 1. 스타일 추출 및 폰트 보정
     head_match = re.search(r'<head[^>]*>(.*?)</head>', raw_html, re.DOTALL | re.IGNORECASE)
     style_tags = ''
     if head_match:
-        style_tags = ''.join(re.findall(r'<style[^>]*>.*?</style>', head_match.group(1), re.DOTALL | re.IGNORECASE))
+        original_styles = ''.join(re.findall(r'<style[^>]*>.*?</style>', head_match.group(1), re.DOTALL | re.IGNORECASE))
+        # 얇은 폰트(300)를 보통 굵기(400)로 변경
+        style_tags = re.sub(r'font-weight\s*:\s*300\s*;?', 'font-weight: 400;', original_styles, flags=re.IGNORECASE)
 
     # 2. <body>에서 내용 추출
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
     body_content = body_match.group(1) if body_match else raw_html
 
-    # 3. 푸터 제거 로직 개선
-    footer_marker = "더 이상 수신을 원하지 않으시면"
-    marker_pos = body_content.find(footer_marker)
-    
-    if marker_pos != -1:
-        # 푸터 마커를 포함하는 가장 가까운 상위 <table> 태그의 시작점을 찾습니다.
-        table_start_pos = body_content.rfind('<table', 0, marker_pos)
-        # 안전장치: 찾은 테이블이 콘텐츠의 전반부(상위 50%)에서 시작하면 메인 컨테이너로 간주하고 제거하지 않습니다.
-        if table_start_pos != -1 and table_start_pos > (len(body_content) * 0.5):
-            body_content = body_content[:table_start_pos]
+    # 3. 푸터 제거 (<tr> 또는 <td> 단위로 제거하여 안전성 확보)
+    # 이 방식은 전체 테이블을 날리지 않아 본문 잘림 위험이 없음
+    patterns_to_remove = [
+        re.compile(r'<tr[^>]*>.*?\(주\)비제이유앤아이.*?</tr>', re.DOTALL | re.IGNORECASE),
+        re.compile(r'<tr[^>]*>.*?더 이상 수신을 원하지 않으시면.*?</tr>', re.DOTALL | re.IGNORECASE),
+        # tr이 없는 경우를 대비해 td도 제거
+        re.compile(r'<td[^>]*>.*?\(주\)비제이유앤아이.*?</td>', re.DOTALL | re.IGNORECASE),
+        re.compile(r'<td[^>]*>.*?더 이상 수신을 원하지 않으시면.*?</td>', re.DOTALL | re.IGNORECASE),
+    ]
+    for pattern in patterns_to_remove:
+        body_content = pattern.sub('', body_content)
 
-    # 4. 스타일과 본문 내용 합치기
-    return f"{style_tags}{body_content}"
+    return (style_tags, body_content.strip())
 
 def run_script(folder_name, module_path, args=[]):
     """
@@ -481,35 +486,40 @@ def archive_view(service_name, date_str):
         page_description = f"웨일헌터 {date_str} 리포트. 암호화폐 시장의 고래 움직임을 추적하여 변동성에 대응하는 데이터를 제공합니다."
 
 
-    content_html = None
-    
-    # [수정] 잠금 상태라도 블러 효과(배경)를 위해 데이터는 로드함
+    all_styles = []
+    all_body_parts = []
+    content_html = None    
+
     if s3_manager:
         if service_name == 'signalist':
             s3_key = f"iceage/out/Signalist_Daily_{date_str}.html"
             raw_html = get_s3_content_with_cache(s3_key)
-            content_html = clean_html_content(raw_html)
+            styles, body = clean_html_content(raw_html)
+            if styles: all_styles.append(styles)
+            if body: all_body_parts.append(body)
             
         elif service_name == 'moneybag' or service_name == 'whalehunter':
-            # [수정] 머니백은 Morning/Night 리포트를 합쳐서 보여줌
             morning_key = f"moneybag/data/out/Moneybag_Letter_Morning_{date_str}.html"
             night_key = f"moneybag/data/out/Moneybag_Letter_Night_{date_str}.html"
             
-            # 머니백은 Morning/Night 두 개를 합쳐서 보여줌
-            morning_html = clean_html_content(get_s3_content_with_cache(morning_key))
-            night_html = clean_html_content(get_s3_content_with_cache(night_key))
+            raw_morning_html = get_s3_content_with_cache(morning_key)
+            morning_styles, morning_body = clean_html_content(raw_morning_html)
             
-            parts = []
-            if morning_html:
-                parts.append('<h2>☀️ Morning Report</h2>')
-                parts.append(morning_html)
-            if night_html:
-                if morning_html:
-                    # 중간 구분선
-                    parts.append('<div style="margin: 80px 0; border-top: 2px dashed #e5e7eb;"></div><h2>🌙 Night Report</h2>')
-                parts.append(night_html)
-            if parts:
-                content_html = "".join(parts)
+            raw_night_html = get_s3_content_with_cache(night_key)
+            night_styles, night_body = clean_html_content(raw_night_html)
+            
+            if morning_styles: all_styles.append(morning_styles)
+            if night_styles: all_styles.append(night_styles)
+            
+            if morning_body:
+                all_body_parts.append('<h2>☀️ Morning Report</h2>' + morning_body)
+            if night_body:
+                if morning_body: all_body_parts.append('<div style="margin: 80px 0; border-top: 2px dashed #e5e7eb;"></div>')
+                all_body_parts.append('<h2>🌙 Night Report</h2>' + night_body)
+
+    if all_body_parts:
+        unique_styles = "".join(list(dict.fromkeys(all_styles)))
+        content_html = f"<style>{unique_styles}</style>" + "".join(all_body_parts)
 
     return render_template(
         'archive_view.html',

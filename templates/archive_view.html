@@ -15,20 +15,20 @@
 {% if is_locked %}
     <!-- 잠금 화면 -->
     <div class="relative">
-        <!-- 블러 처리된 배경 콘텐츠 -->
+        <!-- 배경 콘텐츠 (이제 직접 블러 처리하지 않음) -->
         {% if content_html %}
-        <div class="blur-sm select-none opacity-50">
+        <div class="select-none opacity-50">
             {{ content_html|safe }}
         </div>
         {% else %}
-        <div class="text-center py-20 bg-gray-50 rounded-lg blur-sm select-none opacity-50">
+        <div class="text-center py-20 bg-gray-50 rounded-lg select-none opacity-50">
             <p class="text-gray-500">리포트가 없습니다.</p>
         </div>
         {% endif %}
 
         <!-- 잠금 해제 UI -->
-        <div class="absolute inset-0 bg-white/80"></div> {# 이 div는 배경 오버레이 역할만 합니다 #}
-        <div class="absolute top-0 left-0 right-0 flex items-start justify-center pt-24 z-10"> {# 이 div가 구독 폼을 포함하며, 오버레이 위에 위치합니다 #}
+        <div class="absolute inset-0 bg-white/80 backdrop-blur-sm"></div> {# 배경 오버레이와 블러 효과를 이 div 하나로 처리 #}
+        <div class="absolute top-0 left-0 right-0 flex items-start justify-center pt-24 z-10">
             <div class="text-center bg-white p-8 rounded-lg shadow-2xl border max-w-md w-full relative"> {# 폼 자체는 z-index를 가질 필요가 없습니다 #}
                 <i class="fas fa-lock text-4xl text-gray-400 mb-4"></i>
                 <h2 class="text-xl font-bold mb-2">최신 리포트입니다</h2>
