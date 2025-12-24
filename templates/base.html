@@ -8,13 +8,13 @@
     <meta name="naver-site-verification" content="eb519328a14cc19cfd2ca61832ec3f46c0a315cc" />
     
     <!-- [추가] SEO 메타 태그 -->
-    <meta name="description" content="{% if page_description %}{{ page_description }}{% else %}Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다.{% endif %}">
-    <meta property="og:title" content="{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 시그널{% endif %}">
-    <meta property="og:description" content="{% if page_description %}{{ page_description }}{% else %}Fincore는 데이터 기반의 투자 시그널을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다.{% endif %}">
+    <meta name="description" content="{% if page_description %}{{ page_description }}{% else %}Fincore는 데이터 기반의 투자 분석을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다.{% endif %}">
+    <meta property="og:title" content="{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 분석{% endif %}">
+    <meta property="og:description" content="{% if page_description %}{{ page_description }}{% else %}Fincore는 데이터 기반의 투자 분석을 제공하여 감정에 휘둘리지 않는 객관적인 투자를 돕는 플랫폼입니다.{% endif %}">
     <meta property="og:image" content="{{ url_for('static', filename='images/og_image.png', _external=True) }}">
     <meta property="og:url" content="{{ request.url }}">
 
-    <title>{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 시그널{% endif %}</title>
+    <title>{% if page_title %}{{ page_title }}{% else %}FINCORE | 데이터 기반 투자 분석{% endif %}</title>
 
     <!-- [NEW] SEO: 구조화된 데이터 (JSON-LD) -->
     {% if structured_data_json %}
