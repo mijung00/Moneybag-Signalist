@@ -96,4 +96,3 @@ echo "[$(date)] [Runner] using GUNICORN=$GUNICORN"
 # --workers 1: 단일 프로세스로 실행 (Webhook 수신에는 충분)
 # --bind 0.0.0.0:5001: 모든 네트워크에서 5001 포트로 요청을 받음
 exec "$GUNICORN" --workers 1 --bind 0.0.0.0:5001 moneybag.src.analyzers.moralis_listener:app
-exec "$GUNICORN" --workers 1 --bind 0.0.0.0:5001 moneybag.src.analyzers.moralis_listener:app

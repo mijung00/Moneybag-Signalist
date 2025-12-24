@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from itsdangerous import URLSafeTimedSerializer
 from sendgrid import SendGridAPIClient
+import json
 from sendgrid.helpers.mail import Mail
 
 # --- 경로 설정 ---
@@ -14,8 +15,37 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 # --- 환경 변수 로드 ---
-from common.env_loader import load_env
-load_env(PROJECT_ROOT)
+from dotenv import load_dotenv
+load_dotenv(PROJECT_ROOT / ".env")
+
+# --- [NEW] Secrets Manager JSON Normalizer ---
+def _normalize_json_env(env_key: str) -> None:
+    raw = os.getenv(env_key, "")
+    if not raw:
+        return
+    s = raw.strip()
+
+    if not (s.startswith("{") and s.endswith("}")):
+        return
+
+    try:
+        obj = json.loads(s)
+        if not isinstance(obj, dict): return
+
+        v = obj.get(env_key) or obj.get("value")
+        if not v:
+            for vv in obj.values():
+                if isinstance(vv, str) and vv.strip():
+                    v = vv.strip()
+                    break
+
+        if isinstance(v, str) and v.strip():
+            os.environ[env_key] = v.strip()
+    except Exception:
+        pass
+
+_normalize_json_env("SENDGRID_API_KEY")
+_normalize_json_env("SECRET_KEY")
 
 class ConfigLoader:
     def get_env(self, key, default=None):
