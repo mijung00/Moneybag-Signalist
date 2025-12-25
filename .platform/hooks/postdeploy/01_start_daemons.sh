@@ -11,11 +11,11 @@ chmod +x /var/app/current/run_watchdogs.sh
 systemctl daemon-reload
 
 # 3. 서비스 활성화 (인스턴스 재부팅 시 자동 시작되도록 설정)
-systemctl enable moralis-listener.service watchdog.service
+systemctl enable moralis_listener.service watchdog.service
 
 # 4. 서비스 재시작 (실패 시 로그를 남기도록)
-if ! systemctl restart moralis-listener.service; then
-    echo "⚠️ Failed to restart moralis-listener.service. Check 'journalctl -u moralis-listener.service' on the instance."
+if ! systemctl restart moralis_listener.service; then
+    echo "⚠️ Failed to restart moralis_listener.service. Check 'journalctl -u moralis_listener.service' on the instance."
 fi
 if ! systemctl restart watchdog.service; then
     echo "⚠️ Failed to restart watchdog.service. Check 'journalctl -u watchdog.service' on the instance."
