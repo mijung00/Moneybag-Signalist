@@ -35,7 +35,8 @@ else: # 로컬 Windows 환경일 경우 기존 경로 사용
 WHALE_LOG_FILE = os.path.join(PERSISTENT_LOG_DIR, 'whale_transactions.jsonl')
 
 # Moralis Stream 설정에서 복사한 API 키 (Webhook 서명 검증용)
-MORALIS_API_KEY = os.getenv("MORALIS_API_KEY")
+# [FIX] os.getenv는 ARN을 반환합니다. ensure_secret을 사용해 실제 키 값을 가져옵니다.
+MORALIS_API_KEY = config.ensure_secret("MORALIS_API_KEY")
 
 def verify_signature(request):
     """Webhook 요청의 서명을 검증합니다."""

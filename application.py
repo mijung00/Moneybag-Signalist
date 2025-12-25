@@ -154,21 +154,23 @@ def clean_html_content(raw_html: str) -> tuple[str, str]:
     # 3-2. [Fallback] 주석 마커가 없는 구형 템플릿을 위한 예비 로직
     markers = ["(주)비제이유앤아이", "더 이상 수신을 원하지 않으시면", "본 메일은 투자 참고용이며"]
     cut_pos = len(body_content)
-
+ 
     for marker in markers:
         pos = body_content.rfind(marker)
-        if pos != -1:
+        # [수정] 마커가 문서의 마지막 30% 내에서 발견될 때만 유효한 푸터로 간주합니다.
+        # 이렇게 하면 본문 중간에 비슷한 텍스트가 있어도 잘리는 것을 방지합니다.
+        if pos != -1 and pos > len(body_content) * 0.7:
             # 마커 바로 앞에 있는 푸터 컨테이너의 시작점을 찾습니다.
             # 우선순위: div.footer > hr > table 순으로 탐색
             footer_div_pos = body_content.rfind('<div class="footer"', 0, pos)
             footer_hr_pos = body_content.rfind('<hr', 0, pos)
             footer_table_pos = body_content.rfind('<table', 0, pos)
-            
+ 
             possible_starts = [p for p in [footer_div_pos, footer_hr_pos, footer_table_pos] if p != -1]
             if possible_starts:
                 # 발견된 시작점들 중 마커와 가장 가까운(가장 큰 값) 것을 선택
                 cut_pos = min(cut_pos, max(possible_starts))
-
+ 
     if cut_pos < len(body_content):
         body_content = body_content[:cut_pos]
 
@@ -753,6 +755,16 @@ def worker_moneybag_morning():
         return Response("Moneybag Morning Task Success", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/moneybag-morning failed: {e}", exc_info=True)
+        return Response(str(e), status=500)
+
+@application.route('/worker/moneybag-night', methods=['POST'])
+def worker_moneybag_night():
+    """머니백 나이트 리포트 발송 태스크"""
+    try:
+        run_moneybag_task("night")
+        return Response("Moneybag Night Task Success", status=200)
+    except Exception as e:
+        logging.error(f"Worker task /worker/moneybag-night failed: {e}", exc_info=True)
         return Response(str(e), status=500)
 
 @application.route('/worker/krx', methods=['POST'])
