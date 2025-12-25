@@ -9,10 +9,19 @@ def initialize_environment():
     모든 모듈의 최상단에서 호출될 환경 초기화 함수입니다.
     서버 환경(EB)인지 로컬인지 판별하여 로컬에서만 .env를 로드합니다.
     """
-    # EB 환경 판별 (파일 존재 여부로 판단하지만, 절대 읽으려 시도하지 않음)
     is_server = os.path.exists('/opt/elasticbeanstalk/deployment/env')
 
-    if not is_server:
+    if is_server:
+        try:
+            import dotenv
+            # 서버 환경에서는 load_dotenv 함수를 '아무 일도 안 하는 가짜'로 교체합니다.
+            # 이제 어느 파일에서 이 함수를 호출하든 무시됩니다.
+            dotenv.load_dotenv = lambda *args, **kwargs: None
+            logging.info("Server environment: load_dotenv has been neutralized.")
+        except ImportError:
+            # dotenv가 설치되지 않았으면 아무것도 할 필요가 없습니다.
+            pass
+    else: # 로컬 환경
         try:
             from dotenv import load_dotenv
             load_dotenv()

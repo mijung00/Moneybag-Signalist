@@ -7,29 +7,16 @@ import time
 import urllib3
 from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
 
-try:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-except Exception:
-    pass
-
+# [수정] 모든 환경 설정은 common.config가 책임집니다.
+import common.config
 
 # [젬공의 책략] 경로 설정 & SSL 경고 끄기
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-load_dotenv(PROJECT_ROOT / ".env")
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# EB용 (있으면 추가 로드)
-EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
-if EB_ENV.exists():
-    load_dotenv(EB_ENV)
-
 
 KRX_API_KEY = os.getenv("KRX_AUTH_KEY")
 
