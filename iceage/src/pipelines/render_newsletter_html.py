@@ -220,6 +220,7 @@ def render_markdown_to_html(ref_date: str) -> Path:
       <div class="card">
         {body_html}
       </div>
+      <!-- FINCORE_FOOTER_START -->
       <div style="text-align: center; font-size: 12px; color: #888888; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eeeeee;">
         본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
         더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-" style="color: #555555; text-decoration: underline;">여기</a>를 눌러 구독을 취소해주세요.<br><br>

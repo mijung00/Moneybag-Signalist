@@ -158,18 +158,16 @@ def clean_html_content(raw_html: str) -> tuple[str, str]:
     for marker in markers:
         pos = body_content.rfind(marker)
         # [수정] 마커가 문서의 마지막 30% 내에서 발견될 때만 유효한 푸터로 간주합니다.
-        # 이렇게 하면 본문 중간에 비슷한 텍스트가 있어도 잘리는 것을 방지합니다.
         if pos != -1 and pos > len(body_content) * 0.7:
-            # 마커 바로 앞에 있는 푸터 컨테이너의 시작점을 찾습니다.
-            # 우선순위: div.footer > hr > table 순으로 탐색
-            footer_div_pos = body_content.rfind('<div class="footer"', 0, pos)
-            footer_hr_pos = body_content.rfind('<hr', 0, pos)
-            footer_table_pos = body_content.rfind('<table', 0, pos)
- 
-            possible_starts = [p for p in [footer_div_pos, footer_hr_pos, footer_table_pos] if p != -1]
-            if possible_starts:
-                # 발견된 시작점들 중 마커와 가장 가까운(가장 큰 값) 것을 선택
-                cut_pos = min(cut_pos, max(possible_starts))
+            # [2차 수정] 이전 로직이 본문의 <table>을 푸터로 오인하는 문제가 있었습니다.
+            # 이제는 위험하게 컨테이너를 찾지 않고, 발견된 마커 텍스트가 포함된 태그의 시작점에서 잘라냅니다.
+            # 이렇게 하면 본문이 잘리는 최악의 상황을 방지할 수 있습니다.
+            tag_start_pos = body_content.rfind('<', 0, pos)
+            if tag_start_pos != -1:
+                cut_pos = min(cut_pos, tag_start_pos)
+            else:
+                # 만약 마커 앞에 아무 태그도 없다면 (매우 드문 경우), 그냥 마커 위치에서 자릅니다.
+                cut_pos = min(cut_pos, pos)
  
     if cut_pos < len(body_content):
         body_content = body_content[:cut_pos]
