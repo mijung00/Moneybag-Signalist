@@ -59,6 +59,7 @@ def run_routine(mode="morning"):
     post_processor = ReportPostProcessor()
     
     generated_md_path = None # [추가] 생성된 파일 경로를 저장할 변수
+    all_strategies_from_newsletter = [] # [NEW] 생성된 전략 원본 리스트
     # 👇 [수정] 한국 시간(KST) 기준으로 날짜를 뽑도록 변경!
     now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
     today_str = now_kst.strftime("%Y.%m.%d")
@@ -74,8 +75,8 @@ def run_routine(mode="morning"):
     for attempt in range(max_retries):
         try:
             print(f"\n1️⃣ 뉴스레터 생성 중... (시도 {attempt+1}/{max_retries})")
-            # [수정] 생성된 파일의 경로를 직접 받음
-            generated_md_path = newsletter.generate(mode)
+            # [수정] 생성된 파일 경로와 함께, 후처리에 필요한 원본 전략 리스트를 받음
+            generated_md_path, all_strategies_from_newsletter = newsletter.generate(mode)
             
             # 🔍 검증
             if generated_md_path and generated_md_path.exists():
@@ -104,7 +105,8 @@ def run_routine(mode="morning"):
     # ---------------------------------------------------------
     try:
         print("\n1️⃣-2️⃣ 리포트 후처리 및 전략 다양성 보정 중...")
-        post_processor.run(generated_md_path)
+        # [수정] 원본 전략 리스트를 후처리기에게 전달
+        post_processor.run(generated_md_path, all_strategies_from_newsletter)
     except Exception as e:
         print(f"⚠️ [Warning] 페널티 적용 실패 (계속 진행): {e}")
 

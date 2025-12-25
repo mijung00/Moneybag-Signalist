@@ -55,12 +55,13 @@ class ReportPostProcessor:
         if not top_3_strategies: return ""
         conclusion_parts = ["\n\n## 💡 최종 결론 (The Verdict)\n"]
         top_1 = top_3_strategies[0]
-        conclusion_parts.append(f"**금일 시장 분석 결과, '{top_1['name']}' 전략이 가장 높은 점수를 획득했습니다.** {top_1['description']}\n")
+        # [수정] 'description' 대신 'desc' 키를 사용하고, 키가 없을 경우를 대비해 .get() 사용
+        conclusion_parts.append(f"**금일 시장 분석 결과, '{top_1['name']}' 전략이 가장 높은 점수를 획득했습니다.** {top_1.get('desc', '')}\n")
         if len(top_3_strategies) > 1:
             conclusion_parts.append("\n### 🎯 차선책 분석\n")
             for i, strategy in enumerate(top_3_strategies[1:], start=2):
                 conclusion_parts.append(f"**{i}순위 대안: '{strategy['name']}' ({strategy['type']})**")
-                conclusion_parts.append(f"- **주요 특징:** {strategy['description']}")
+                conclusion_parts.append(f"- **주요 특징:** {strategy.get('desc', '')}")
                 if "Trend" in strategy['type']:
                     conclusion_parts.append("- **고려사항:** 추세가 명확할 때 높은 신뢰도를 보이지만, 횡보장에서는 잦은 손실이 발생할 수 있습니다.\n")
                 elif "Mean Reversion" in strategy['type']:
@@ -70,52 +71,55 @@ class ReportPostProcessor:
         conclusion_parts.append("\n> **투자 조언:** 1위 전략을 중심으로 대응하되, 시장 상황이 변할 경우 차선책으로 제시된 전략들의 시나리오를 염두에 두는 유연한 접근이 필요합니다.")
         return "\n".join(conclusion_parts)
 
-    def run(self, md_path: Path):
-        """주요 실행 함수: 마크다운 파일을 읽고, 페널티 적용 후 다시 씁니다."""
+    def run(self, md_path: Path, strategies: list):
+        """
+        주요 실행 함수: 마크다운 파일을 읽고, 페널티 적용 후 테이블과 결론을 재생성하여 덮어씁니다.
+        """
         history_logs = self._get_strategy_history(days=2)
         if not md_path or not md_path.exists():
             print("❌ [PostProcessor] 처리할 마크다운 파일이 없습니다.")
             return
+        if not strategies:
+            print("📖 [PostProcessor] 처리할 전략 데이터가 없어 후처리를 건너뜁니다.")
+            return
 
         try:
             content = md_path.read_text(encoding='utf-8')
-            table_regex = re.compile(r"(\s*\|\s*순위\s*\|.*?\|[\s\r\n]+.*?\|[\s\r\n]+(?:\|\s*\d+\s*\|.*?\|[\s\r\n]*)+)")
-            table_match = table_regex.search(content)
-            if not table_match: return
 
-            original_table_str = table_match.group(1)
-            table_rows = [row for row in original_table_str.strip().split('\n') if row.strip()]
-            header, separator, strategy_rows = table_rows[0], table_rows[1], table_rows[2:]
+            # 1. [수정] MD 파싱 대신, runner로부터 전달받은 원본 전략 리스트를 사용
+            current_candidates = {s['name']: s['score'] for s in strategies}
 
-            current_candidates, parsed_strategies = {}, []
-            for row in strategy_rows:
-                parts = [p.strip() for p in row.split('|') if p.strip()]
-                if len(parts) < 4: continue
-                name, score_str = parts[1], parts[3]
-                try:
-                    current_candidates[name] = float(score_str)
-                    parsed_strategies.append({'name': name, 'type': parts[2], 'score': float(score_str), 'description': parts[4] if len(parts) > 4 else ""})
-                except (ValueError, IndexError): continue
-
+            # 2. 페널티 적용
             penalized_scores = self._apply_diversity_penalty(current_candidates, history_logs)
 
-            new_table_rows, top_3_strategies_after_penalty = [header, separator], []
+            # 3. 새로운 테이블과 결론 생성용 데이터 준비
+            new_table_rows = ["| 순위 | 전략명 | 유형 | 점수 | 설명 |", "|---|---|---|---|---|"]
+            top_3_strategies_after_penalty = []
+
             for i, (name, score) in enumerate(penalized_scores.items()):
-                info = next((s for s in parsed_strategies if s['name'] == name), None)
+                # 원본 전략 정보 찾기
+                info = next((s for s in strategies if s['name'] == name), None)
                 if info:
-                    # [수정] f-string 내부의 복잡성을 줄여 포맷팅 오류를 방지
                     rank = i + 1
                     strat_name = name
                     strat_type = info.get('type', '')
                     strat_score = int(round(score))
-                    strat_desc = info.get('description', '')
+                    strat_desc = info.get('desc', '') # 'desc' 키 사용
                     new_row = f"| {rank} | {strat_name} | {strat_type} | {strat_score} | {strat_desc} |"
                     new_table_rows.append(new_row)
 
-                    if i < 3: top_3_strategies_after_penalty.append(info)
+                    if i < 3:
+                        # 결론 생성에 필요한 정보 (페널티 적용된 점수 포함)
+                        penalized_info = info.copy()
+                        penalized_info['score'] = strat_score
+                        top_3_strategies_after_penalty.append(penalized_info)
             
-            new_content = content.replace(original_table_str.strip(), "\n".join(new_table_rows))
+            final_table_str = "\n".join(new_table_rows)
+
+            # 4. [수정] 플레이스홀더를 새로 생성한 테이블로 '치환'
+            new_content = content.replace("<!-- STRATEGY_TABLE_PLACEHOLDER -->", final_table_str)
             
+            # 5. 결론 섹션 업데이트
             new_conclusion_str = self._generate_new_conclusion(top_3_strategies_after_penalty)
             if new_conclusion_str:
                 conclusion_regex = re.compile(r"(##\s*(?:💡\s*)?(?:최종 결론|The Verdict).*?)(?=##|$)", re.DOTALL)

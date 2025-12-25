@@ -237,6 +237,7 @@ class EmailSender:
                 <div class="card">
                     {body_content}
                 </div>
+                <!-- FINCORE_FOOTER_START -->
                 <div class="footer">
                     본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
                     더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-">여기</a>를 눌러 구독을 취소해주세요.<br><br>

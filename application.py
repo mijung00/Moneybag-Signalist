@@ -172,12 +172,34 @@ def clean_html_content(raw_html: str) -> tuple[str, str]:
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
     body_content = body_match.group(1) if body_match else raw_html
 
-    # 3. [수정] 푸터 제거 로직 정교화
-    # send_email.py에서 푸터는 <div class="footer">...</div> 형태로 감싸져 있습니다.
-    # rfind로 가장 마지막에 있는 푸터의 시작점을 찾아 그 지점부터의 모든 내용을 잘라냅니다.
-    footer_start_pos = body_content.rfind('<div class="footer">')
-    if footer_start_pos != -1:
-        body_content = body_content[:footer_start_pos]
+    # 3. 푸터 제거 로직 (주석 마커 방식 우선)
+    # 3-1. [NEW] 가장 확실하고 안정적인 방법: 주석 마커를 찾아 제거
+    comment_marker = '<!-- FINCORE_FOOTER_START -->'
+    marker_pos = body_content.find(comment_marker)
+    if marker_pos != -1:
+        body_content = body_content[:marker_pos]
+        return (style_tags, body_content.strip())
+
+    # 3-2. [Fallback] 주석 마커가 없는 구형 템플릿을 위한 예비 로직
+    markers = ["(주)비제이유앤아이", "더 이상 수신을 원하지 않으시면", "본 메일은 투자 참고용이며"]
+    cut_pos = len(body_content)
+
+    for marker in markers:
+        pos = body_content.rfind(marker)
+        if pos != -1:
+            # 마커 바로 앞에 있는 푸터 컨테이너의 시작점을 찾습니다.
+            # 우선순위: div.footer > hr > table 순으로 탐색
+            footer_div_pos = body_content.rfind('<div class="footer"', 0, pos)
+            footer_hr_pos = body_content.rfind('<hr', 0, pos)
+            footer_table_pos = body_content.rfind('<table', 0, pos)
+            
+            possible_starts = [p for p in [footer_div_pos, footer_hr_pos, footer_table_pos] if p != -1]
+            if possible_starts:
+                # 발견된 시작점들 중 마커와 가장 가까운(가장 큰 값) 것을 선택
+                cut_pos = min(cut_pos, max(possible_starts))
+
+    if cut_pos < len(body_content):
+        body_content = body_content[:cut_pos]
 
     return (style_tags, body_content.strip())
 

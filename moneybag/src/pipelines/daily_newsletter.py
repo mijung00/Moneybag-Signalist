@@ -3,6 +3,7 @@ import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 import json
@@ -154,8 +155,18 @@ class DailyNewsletter:
         return table_str
 
     def get_market_sentiment_display(self, regime_info: dict):
-        data = self.onchain_collector.get_whale_ammo()
-        if not data: return "데이터 수집 실패"
+        # [수정] 외부 API 호출 안정성 강화를 위해 재시도 로직 추가
+        data = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            data = self.onchain_collector.get_whale_ammo()
+            if data:
+                break
+            print(f"⚠️ [Retry] 온체인 데이터 수집 재시도... ({attempt + 1}/{max_retries})")
+            time.sleep(5) # 5초 후 재시도
+
+        if not data: 
+            return "데이터 수집 실패"
         
         raw_score = data['current']['value']
         main_regime = regime_info.get('main_regime', 'Range')
@@ -291,11 +302,7 @@ class DailyNewsletter:
         news_data = self.collect_news()
         today_date = datetime.now().strftime("%Y.%m.%d")
 
-        # [표 생성] 상위 3개 전략 요약 테이블 만들기
-        top_strategies = sorted(all_strategies, key=lambda x: x['score'], reverse=True)[:3]
-        strat_table_str = "| 순위 | 전략명 | 유형 | 점수 | 설명 |\n|---|---|---|---|---|\n"
-        for i, strat in enumerate(top_strategies, 1):
-            strat_table_str += f"| {i} | {strat['name']} | {strat['type']} | {strat['score']} | {strat['desc']} |\n"
+        # [수정] 테이블 생성 로직은 PostProcessor로 이동. 여기서는 플레이스홀더만 남김.
 
         # 4. [수정] LLM 프롬프트 대폭 수정 (새로운 시스템의 논리를 설명하도록)
         system_prompt = f"""
@@ -352,7 +359,7 @@ class DailyNewsletter:
 
         ## 3. ⚔️ 전술 시뮬레이션 (Strategy Lab)
         오늘의 전장 상황: **대국면: {main_regime} | 전술상황: {tactical_state}**
-        {strat_table_str}
+        <!-- STRATEGY_TABLE_PLACEHOLDER -->
         > **💡 헌터의 코멘트:** (오늘 왜 **{commander_name}** 모드로 전환했는지, 그리고 1위 전략이 왜 선택되었는지 설명해라.)
 
         ## 4. 오늘의 단타 전술 (Scalping Map)
@@ -375,7 +382,7 @@ class DailyNewsletter:
             result_text = _chat(system_prompt, user_prompt)
         
         saved_path = self.save_to_file(result_text, today_date, mode)
-        return saved_path
+        return saved_path, all_strategies
 
     def save_to_file(self, text, date_str, mode):
         """[NEW] dev/prod 환경에 따라 파일명을 분리하여 저장합니다."""
