@@ -156,29 +156,91 @@ class EmailSender:
         <head>
             <meta charset="utf-8">
             <style>
-                body {{ font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; }}
-                h1 {{ color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; margin-bottom: 30px; }}
-                h2 {{ color: #0056b3; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 5px; font-size: 1.5em; }}
-                h3 {{ color: #2c3e50; margin-top: 30px; font-size: 1.2em; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }}
-                th, td {{ border: 1px solid #ddd; padding: 10px; text-align: center; }}
-                th {{ background-color: #f8f9fa; color: #555; font-weight: bold; }}
-                tr:nth-child(even) {{ background-color: #fdfdfd; }}
-                ul {{ margin: 10px 0 20px 20px; padding-left: 0; }}
-                li {{ margin-bottom: 8px; list-style-type: disc; }}
-                p > strong:first-child {{ color: #d35400; }} 
-                blockquote {{ border-left: 4px solid #0056b3; margin: 20px 0; padding: 15px; background-color: #f1f8ff; color: #555; border-radius: 4px; }}
-                hr {{ border: 0; height: 1px; background: #eee; margin: 40px 0; }}
-                .footer {{ margin-top: 50px; font-size: 12px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 20px; }}
+                body {{
+                    font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+                    line-height: 1.7;
+                    color: #374151; /* 기본 텍스트 색상 (회색) */
+                    background-color: #f4f5f7; /* 전체 배경 */
+                    margin: 0;
+                    padding: 20px;
+                }}
+                .container {{
+                    max-width: 800px;
+                    margin: 0 auto;
+                }}
+                .card {{
+                    background-color: #ffffff;
+                    padding: 40px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                }}
+                h1 {{
+                    font-size: 28px;
+                    color: #0f172a; /* 진한 파랑-검정 */
+                    border-bottom: 2px solid #dbeafe; /* 옅은 파랑 */
+                    padding-bottom: 12px;
+                    margin-bottom: 30px;
+                }}
+                h2 {{
+                    font-size: 22px;
+                    color: #1e3a8a; /* 더 진한 파랑 */
+                    margin-top: 40px;
+                    border-bottom: 1px solid #e5e7eb;
+                    padding-bottom: 8px;
+                }}
+                h3 {{
+                    font-size: 18px;
+                    color: #111827;
+                    margin-top: 30px;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 25px 0;
+                    font-size: 14px;
+                    border: 1px solid #e5e7eb;
+                }}
+                th, td {{
+                    border: 1px solid #e5e7eb;
+                    padding: 12px 15px;
+                    text-align: center;
+                }}
+                th {{
+                    background-color: #eff6ff; /* 옅은 파랑 (시그널리스트 스타일) */
+                    color: #1e3a8a;
+                    font-weight: 600;
+                    border-bottom: 2px solid #bfdbfe;
+                }}
+                tr:nth-child(even) {{ background-color: #f9fafb; }}
+                tr:hover {{ background-color: #f3f4f6; }}
+                blockquote {{
+                    border-left: 4px solid #3b82f6; /* 파란색 */
+                    margin: 25px 0;
+                    padding: 15px 20px;
+                    background-color: #f3f4ff; /* 옅은 파랑 배경 */
+                    color: #374151;
+                    border-radius: 4px;
+                }}
+                hr {{ border: 0; height: 1px; background: #e5e7eb; margin: 40px 0; }}
+                .footer {{
+                    margin-top: 40px;
+                    font-size: 12px;
+                    color: #6b7280; /* 더 연한 회색 */
+                    text-align: center;
+                    padding-top: 20px;
+                }}
+                .footer a {{ color: #4b5563; text-decoration: underline; }}
             </style>
         </head>
         <body>
             <div class="container">
-                {body_content}
-                <div class="footer" style="text-align: center; font-size: 12px; color: #888888; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eeeeee;">
+                <div class="card">
+                    {body_content}
+                </div>
+                <div class="footer">
                     본 메일은 -email- 주소로 발송된 Fincore 뉴스레터입니다.<br>
-                    더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-" style="color: #555555; text-decoration: underline;">여기</a>를 눌러 구독을 취소해주세요.<br><br>
-                    (주)비제이유앤아이 | <a href="{web_base_url}/privacy" style="color: #555555; text-decoration: underline;">개인정보 처리방침</a><br>
+                    더 이상 수신을 원하지 않으시면 <a href="-unsubscribe_url-">여기</a>를 눌러 구독을 취소해주세요.<br><br>
+                    (주)비제이유앤아이 | <a href="{web_base_url}/privacy">개인정보 처리방침</a><br>
                     <p style="margin-top: 10px;">본 메일은 투자 참고용이며, 투자의 책임은 본인에게 있습니다.</p>
                 </div>
             </div>
