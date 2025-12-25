@@ -10,7 +10,8 @@ from typing import Literal
 
 import pandas as pd
 import requests
-from dotenv import load_dotenv   # ✅ 추가
+# [수정] 모든 환경 설정은 common.config가 책임집니다.
+import common.config
 
 # 기존 PROJECT_ROOT는 'iceage' 디렉터리 기준으로 그대로 둬도 됨
 PROJECT_ROOT = Path(__file__).resolve().parents[2]   # ...\iceage
@@ -18,16 +19,7 @@ REPO_ROOT = PROJECT_ROOT.parent                      # ...\project  ✅
 
 DATA_DIR = PROJECT_ROOT / "data" / "raw"
 
-# ✅ .env 는 레포 루트에 있다고 가정
-load_dotenv(REPO_ROOT / ".env")
 
-# EB용 (있으면 추가 로드)
-EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
-if EB_ENV.exists():
-    load_dotenv(EB_ENV)
-
-KRX_AUTH_KEY = os.getenv("KRX_AUTH_KEY")
-print(f"[DEBUG] KRX_AUTH_KEY prefix={KRX_AUTH_KEY[:6]}..., length={len(KRX_AUTH_KEY) if KRX_AUTH_KEY else 0}")
 
 KOSPI_URL = os.getenv(
     "KRX_STK_BYDD_TRD_URL",
@@ -40,10 +32,14 @@ KOSDAQ_URL = os.getenv(
 
 
 def _ensure_auth():
-    if not KRX_AUTH_KEY:
-        raise RuntimeError(
-            "KRX_AUTH_KEY 가 설정되어 있지 않습니다. (.env / GitHub Secrets 확인)"
-        )
+    """ConfigLoader를 통해 KRX 인증 키를 안전하게 가져와서 반환합니다."""
+    key = os.getenv("KRX_AUTH_KEY")
+    # 값이 없거나, ARN 형태일 경우 Secrets Manager에서 가져옵니다.
+    if not key or key.startswith("arn:aws:secretsmanager"):
+        key = config.ensure_secret("KRX_AUTH_KEY")
+    if not key:
+        raise RuntimeError("KRX_AUTH_KEY가 설정되어 있지 않습니다.")
+    return key
 
 
 def _parse_number(val: str | float | int | None) -> float | None:
@@ -73,7 +69,7 @@ def _fetch_market(
     """
     특정 기준일 / 특정 시장(KOSPI / KOSDAQ)의 일별매매정보를 가져와서 DataFrame 으로 반환.
     """
-    _ensure_auth()
+    auth_key = _ensure_auth()
 
     try:
         d = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -88,7 +84,7 @@ def _fetch_market(
         url = KOSDAQ_URL
 
     headers = {
-        "AUTH_KEY": KRX_AUTH_KEY,
+        "AUTH_KEY": auth_key,
     }
     params = {
         "basDd": bas_dd,
@@ -269,4 +265,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
