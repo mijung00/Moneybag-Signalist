@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import logging
 import secrets
 import pymysql
 import boto3
@@ -13,6 +14,12 @@ from datetime import datetime, timedelta
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 from botocore.exceptions import ClientError
 from threading import Thread
+from dotenv import load_dotenv
+
+# [FIX] Load .env file only in local development, not on the server.
+# The existence of the Beanstalk env file is a reliable indicator of the server environment.
+if not os.path.exists('/opt/elasticbeanstalk/deployment/env'):
+    load_dotenv()
 
 # ----------------------------------------------------------------
 # [1] 기본 설정 및 경로
@@ -43,41 +50,59 @@ class ConfigLoader:
     def __init__(self):
         self.region = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
         self.secrets_client = None
+        # EB 환경 변수 파일 로드 (부팅 시 1회 실행)
+        self._load_eb_env()
+
+    def _load_eb_env(self):
+        env_path = '/opt/elasticbeanstalk/deployment/env'
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip().replace('export ', '')
+                    if '=' in line and not line.startswith('#'):
+                        key, value = line.split('=', 1)
+                        os.environ[key] = value.strip('"').strip("'")
 
     def _get_secrets_client(self):
         if not self.secrets_client:
             self.secrets_client = boto3.client("secretsmanager", region_name=self.region)
         return self.secrets_client
 
-    def get_env(self, key, default=None):
+    def ensure_secret(self, key, default=None):
+        """기존 셸의 ensure_secret_env 로직을 파이썬으로 완벽 구현"""
         value = os.getenv(key, default)
-        # 값이 없거나, 평문이면 그대로 반환
-        if not value or not value.startswith("arn:aws:secretsmanager"):
-            return value
         
-        # ARN이면 Secrets Manager 조회
+        # 값이 이미 존재하고 ARN이 아니면 그대로 유지
+        if value and not value.startswith("arn:aws:secretsmanager"):
+            return value
+
+        sid = value if value and value.startswith("arn:aws:secretsmanager") else key
         try:
             client = self._get_secrets_client()
-            resp = client.get_secret_value(SecretId=value)
-            secret = resp.get("SecretString")
-            if secret and secret.strip().startswith("{"):
-                try:
-                    data = json.loads(secret)
-                    return data.get(key) or data.get("value") or secret
-                except json.JSONDecodeError:
-                    pass
-            return secret
-        except ClientError:
+            resp = client.get_secret_value(SecretId=sid)
+            secret_str = resp.get("SecretString")
+            
+            # JSON인 경우 파싱하여 해당 키값 추출
+            if secret_str and secret_str.strip().startswith("{"):
+                data = json.loads(secret_str)
+                final_val = data.get(key) or data.get("value") or secret_str
+            else:
+                final_val = secret_str
+            
+            os.environ[key] = final_val # 환경 변수에 주입
+            return final_val
+        except Exception as e:
+            logging.warning(f"Secret load failed for {key}: {e}")
             return value
 
 config = ConfigLoader()
 
 # DB & S3 설정 로드
-DB_HOST = config.get_env("DB_HOST")
-DB_PORT = int(config.get_env("DB_PORT", "3306"))
-DB_USER = config.get_env("DB_USER")
-DB_PASSWORD = config.get_env("DB_PASSWORD")
-DB_NAME = config.get_env("DB_NAME")
+DB_HOST = config.ensure_secret("DB_HOST")
+DB_PORT = int(config.ensure_secret("DB_PORT", "3306"))
+DB_USER = config.ensure_secret("DB_USER")
+DB_PASSWORD = config.ensure_secret("DB_PASSWORD")
+DB_NAME = config.ensure_secret("DB_NAME")
 TARGET_BUCKET = "fincore-output-storage" # [하드코딩]
 
 # S3 Manager 초기화
@@ -203,31 +228,6 @@ def clean_html_content(raw_html: str) -> tuple[str, str]:
 
     return (style_tags, body_content.strip())
 
-def run_script(folder_name, module_path, args=[]):
-    """
-    [태스크 러너용] 특정 모듈을 서브프로세스로 실행
-    """
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_module_path = f"{folder_name}.{module_path}"
-    cmd = [sys.executable, "-m", full_module_path] + args
-    
-    # [추가] Windows 인코딩 문제를 해결하기 위해 모든 자식 프로세스를 UTF-8 모드로 실행
-    env = os.environ.copy()
-    env["PYTHONUTF8"] = "1"
-
-    print(f"🚀 [Start Task] {full_module_path}")
-    try:
-        # cwd를 프로젝트 루트로 설정하여 실행
-        # [수정] env 파라미터를 추가하여 UTF-8 모드 강제
-        result = subprocess.run(cmd, cwd=base_dir, capture_output=True, text=True, encoding='utf-8', env=env)
-        print(f"✅ Output:\n{result.stdout}")
-        if result.stderr:
-            print(f"⚠️ Error Log:\n{result.stderr}")
-        return "SUCCESS" if result.returncode == 0 else f"FAIL: {result.stderr}"
-    except Exception as e:
-        print(f"❌ Exception: {e}")
-        return f"EXCEPTION: {str(e)}"
-
 def send_report_email_async(service_name, date_str, recipient_email):
     """백그라운드에서 리포트 이메일을 발송하는 함수"""
     with app.app_context():
@@ -244,9 +244,18 @@ def send_report_email_async(service_name, date_str, recipient_email):
 
 def send_welcome_email_async(service_name, recipient_email):
     """[NEW] 신규 구독자에게 환영 메일을 발송하는 전용 함수"""
+    # [리팩토링] subprocess 대신 파이썬 함수를 직접 호출합니다.
     with app.app_context():
-        # [수정] 일관성을 위해 run_script 헬퍼 함수를 사용하도록 변경
-        run_script(service_name, "src.pipelines.send_welcome_email", [recipient_email])
+        try:
+            if service_name == 'iceage':
+                from iceage.src.pipelines import send_welcome_email as iceage_welcome
+                iceage_welcome.main(recipient_email)
+            elif service_name == 'moneybag':
+                from moneybag.src.pipelines import send_welcome_email as moneybag_welcome
+                moneybag_welcome.main(recipient_email)
+            logging.info(f"Welcome email sent to {recipient_email} for {service_name}")
+        except Exception as e:
+            logging.error(f"Failed to send welcome email: {e}", exc_info=True)
 
 def send_inquiry_email_async(to_email, subject, body, sender_email):
     """[NEW] 백그라운드에서 제휴문의 이메일을 발송하는 함수 (앱 컨텍스트 포함)"""
@@ -258,7 +267,7 @@ def send_simple_email(to_email, subject, body, sender_email):
     from sendgrid import SendGridAPIClient
     from sendgrid.helpers.mail import Mail
 
-    api_key = config.get_env("SENDGRID_API_KEY")
+    api_key = config.ensure_secret("SENDGRID_API_KEY")
     if not api_key:
         print("❌ [Email Error] SendGrid API Key가 없습니다.")
         return False
@@ -281,39 +290,6 @@ def send_simple_email(to_email, subject, body, sender_email):
     except Exception as e:
         print(f"❌ [Inquiry Email Error] {e}")
         return False
-
-# ================================================================
-# 🌐 [PART A] 태스크 러너 라우트 (AWS/Cron 호출용)
-# ================================================================
-@application.route('/run_moneybag_morning', methods=['GET', 'POST'])
-def moneybag_morning():
-    return run_script("moneybag", "src.pipelines.daily_runner", ["morning"]), 200
-
-@application.route('/run_moneybag_night', methods=['GET', 'POST'])
-def moneybag_night():
-    return run_script("moneybag", "src.pipelines.daily_runner", ["night"]), 200
-
-@application.route('/run_signalist', methods=['GET', 'POST'])
-def signalist_morning():
-    return run_script("iceage", "src.pipelines.daily_runner"), 200
-
-@application.route('/update_stock_data', methods=['GET', 'POST'])
-def update_stock_data():
-    today = datetime.now()
-    logs = []
-    collectors = [
-        "src.collectors.krx_listing_collector",
-        "src.collectors.krx_index_collector",
-        "src.collectors.krx_daily_price_collector"
-    ]
-    for i in range(3, 0, -1):
-        target_date = today - timedelta(days=i)
-        date_str = target_date.strftime("%Y%m%d")
-        logs.append(f"Date: {date_str}")
-        for module in collectors:
-            msg = run_script("iceage", module, [date_str])
-            logs.append(f" - {module}: {msg}")
-    return "\n".join(logs), 200
 
 # ================================================================
 # 🌐 [PART B] 웹사이트 UI 라우트 (메인 & 아카이브)
@@ -797,6 +773,62 @@ def unsubscribe(service_name, token):
 
     display_name = "The Signalist" if service_name == 'signalist' else "The Whale Hunter"
     return render_template('unsubscribe.html', token=token, email=email, service_name=service_name, display_name=display_name)
+
+# ================================================================
+# 🌐 [PART D] [NEW] 작업자(Worker) 전용 라우트
+# ================================================================
+from tasks.runner import run_iceage_task, run_moneybag_task, run_krx_batch_task, run_iceage_weekly_task, run_iceage_monthly_task
+
+@application.route('/worker/newsletter', methods=['POST'])
+def worker_newsletter():
+    """모닝 리포트 및 뉴스레터 발송 태스크 (시그널리스트)"""
+    try:
+        # run_iceage.sh newsletter 와 동일
+        run_iceage_task("newsletter")
+        return Response("Newsletter Task Success", status=200)
+    except Exception as e:
+        logging.error(f"Worker task /worker/newsletter failed: {e}", exc_info=True)
+        return Response(str(e), status=500)
+
+@application.route('/worker/moneybag-morning', methods=['POST'])
+def worker_moneybag_morning():
+    """머니백 모닝 리포트 발송 태스크"""
+    try:
+        run_moneybag_task("morning")
+        return Response("Moneybag Morning Task Success", status=200)
+    except Exception as e:
+        logging.error(f"Worker task /worker/moneybag-morning failed: {e}", exc_info=True)
+        return Response(str(e), status=500)
+
+@application.route('/worker/krx', methods=['POST'])
+def worker_krx_batch():
+    """KRX 데이터 수집 배치 태스크"""
+    try:
+        msg = run_krx_batch_task(days=3)
+        return Response(msg, status=200)
+    except Exception as e:
+        logging.error(f"Worker task /worker/krx failed: {e}", exc_info=True)
+        return Response(str(e), status=500)
+
+@application.route('/worker/iceage-weekly', methods=['POST'])
+def worker_iceage_weekly():
+    """시그널리스트 주간 리포트 발송 태스크"""
+    try:
+        run_iceage_weekly_task()
+        return Response("IceAge Weekly Task Success", status=200)
+    except Exception as e:
+        logging.error(f"Worker task /worker/iceage-weekly failed: {e}", exc_info=True)
+        return Response(str(e), status=500)
+
+@application.route('/worker/iceage-monthly', methods=['POST'])
+def worker_iceage_monthly():
+    """시그널리스트 월간 리포트 발송 태스크"""
+    try:
+        run_iceage_monthly_task()
+        return Response("IceAge Monthly Task Success", status=200)
+    except Exception as e:
+        logging.error(f"Worker task /worker/iceage-monthly failed: {e}", exc_info=True)
+        return Response(str(e), status=500)
 
 # 애플리케이션 시작 시 칼럼 데이터 로드 (모듈 임포트 시점에 실행)
 load_column_data()

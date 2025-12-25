@@ -1,0 +1,27 @@
+version: 1
+cron:
+  # ======================================================
+  # Morning Tasks (KST)
+  # ======================================================
+  - name: "signalist-morning-newsletter"
+    url: "/worker/newsletter"
+    schedule: "0 22 * * *" # KST 07:00
+
+  - name: "moneybag-morning-report"
+    url: "/worker/moneybag-morning"
+    schedule: "30 22 * * *" # KST 07:30
+
+  # ======================================================
+  # Evening & Night Tasks (KST)
+  # ======================================================
+  - name: "krx-data-batch"
+    url: "/worker/krx"
+    schedule: "0 11 * * *" # KST 20:00
+
+  - name: "iceage-weekly-report"
+    url: "/worker/iceage-weekly"
+    schedule: "0 23 * * FRI" # KST 08:00 (토)
+
+  - name: "iceage-monthly-report"
+    url: "/worker/iceage-monthly"
+    schedule: "0 0 1 * *" # KST 09:00 (매월 1일)
