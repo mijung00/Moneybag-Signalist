@@ -4,6 +4,25 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
+def initialize_environment():
+    """
+    모든 모듈의 최상단에서 호출될 환경 초기화 함수입니다.
+    서버 환경(EB)인지 로컬인지 판별하여 로컬에서만 .env를 로드합니다.
+    """
+    # EB 환경 판별 (파일 존재 여부로 판단하지만, 절대 읽으려 시도하지 않음)
+    is_server = os.path.exists('/opt/elasticbeanstalk/deployment/env')
+
+    if not is_server:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            logging.info("Local environment: .env loaded.")
+        except ImportError:
+            logging.warning("dotenv module not found. Skipping .env load.")
+
+# 이 모듈이 임포트되는 순간, 환경 초기화 함수를 단 한 번 실행합니다.
+initialize_environment()
+
 class ConfigLoader:
     def __init__(self):
         self.region = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
@@ -26,7 +45,7 @@ class ConfigLoader:
             client = self._get_secrets_client()
             resp = client.get_secret_value(SecretId=sid)
             secret_str = resp.get("SecretString")
-            data = json.loads(secret_str) if secret_str and secret_str.strip().startswith("{") else {}
+            data = json.loads(secret_str) if secret_str and secret_str.strip().startswith('{') else {}
             final_val = data.get(key) or data.get("value") or secret_str
             os.environ[key] = final_val
             return final_val

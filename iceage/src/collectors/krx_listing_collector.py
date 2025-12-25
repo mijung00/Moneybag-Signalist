@@ -11,23 +11,9 @@ from typing import Literal
 import pandas as pd
 import numpy as np
 import requests
-from dotenv import load_dotenv   # ✅
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]   # ...\iceage
-REPO_ROOT = PROJECT_ROOT.parent                      # ...\project  ✅
-
-DATA_DIR = PROJECT_ROOT / "data" / "reference"
-
-# ✅ 레포 루트 .env 로드
-load_dotenv(REPO_ROOT / ".env")
-
-KRX_AUTH_KEY = os.getenv("KRX_AUTH_KEY")
-
-
-# EB용 (있으면 추가 로드)
-EB_ENV = Path("/opt/elasticbeanstalk/deployment/env")
-if EB_ENV.exists():
-    load_dotenv(EB_ENV)
+# [수정] 이제 모든 환경 변수와 시크릿은 config 객체를 통해 안전하게 접근합니다.
+from common.config import config
 
 
 def _get_krx_key():
@@ -35,7 +21,9 @@ def _get_krx_key():
 
 def _ensure_auth():
     key = _get_krx_key()
-    if not key:
+    if not key: # KRX_AUTH_KEY가 아직 로드되지 않았다면 config를 통해 로드 시도
+        key = config.ensure_secret("KRX_AUTH_KEY")
+    if not key: # 그래도 없으면 에러 발생
         raise RuntimeError("KRX_AUTH_KEY가 설정되어 있지 않습니다.")
     return key
 
@@ -48,14 +36,6 @@ KOSDAQ_BASE_URL = os.getenv(
     "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_isu_base_info",
 )
 
-
-def _ensure_auth():
-    if not KRX_AUTH_KEY:
-        raise RuntimeError(
-            "KRX_AUTH_KEY 가 설정되어 있지 않습니다. (.env / GitHub Secrets 확인)"
-        )
-
-
 def _fetch_base_info(
     date_str: str,
     market: Literal["KOSPI", "KOSDAQ"],
@@ -63,7 +43,7 @@ def _fetch_base_info(
     """
     유가증권 / 코스닥 종목기본정보를 가져와서 DataFrame 으로 반환.
     """
-    _ensure_auth()
+    auth_key = _ensure_auth()
 
     try:
         d = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -78,7 +58,7 @@ def _fetch_base_info(
         url = KOSDAQ_BASE_URL
 
     headers = {
-        "AUTH_KEY": KRX_AUTH_KEY,
+        "AUTH_KEY": auth_key,
     }
     params = {
         "basDd": bas_dd,

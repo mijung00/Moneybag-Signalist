@@ -13,15 +13,10 @@ from datetime import datetime, timedelta
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 from botocore.exceptions import ClientError
 from threading import Thread
-from dotenv import load_dotenv
 
 # 새로 분리된 공유 설정 로더를 임포트합니다.
+# 이 한 줄이 모든 환경 설정을 책임집니다. (initialize_environment() 호출)
 from common.config import config
-
-# [FIX] Load .env file only in local development, not on the server.
-# The existence of the Beanstalk env file is a reliable indicator of the server environment.
-if not os.path.exists('/opt/elasticbeanstalk/deployment/env'):
-    load_dotenv()
 
 # ----------------------------------------------------------------
 # [1] 기본 설정 및 경로
