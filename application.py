@@ -795,6 +795,12 @@ def worker_iceage_monthly():
         logging.error(f"Worker task /worker/iceage-monthly failed: {e}", exc_info=True)
         return Response(str(e), status=500)
 
+@application.route('/worker/health')
+def worker_health_check():
+    """작업자 환경의 sqsd 데몬을 위한 전용 헬스 체크 경로"""
+    return "OK", 200
+
+
 # 애플리케이션 시작 시 칼럼 데이터 로드 (모듈 임포트 시점에 실행)
 load_column_data()
 
