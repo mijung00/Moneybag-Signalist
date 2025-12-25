@@ -14,12 +14,8 @@ cd "$APP_DIR"
 
 echo "[$(date)] [Runner] Moralis Listener 서비스 시작..."
 
-# EB가 systemd에서 이미 EnvironmentFile로 환경변수를 주지만,
-# 혹시 수동 실행하는 경우를 위해 한 번 더 로드(실패해도 계속 진행)
-if [ -f /opt/elasticbeanstalk/deployment/env ]; then
-  set -a; . /opt/elasticbeanstalk/deployment/env; set +a
-fi
-if [ -f "$APP_DIR/.env" ]; then
+# 로컬 테스트 시 .env 파일 로드
+if [ -f "$APP_DIR/.env" ] && [ ! -f /opt/elasticbeanstalk/deployment/env ]; then
   set -a; . "$APP_DIR/.env"; set +a
 fi
 
