@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -x # [DEBUG] 실행되는 모든 명령어를 로그에 출력합니다.
 
 if [ -f /opt/elasticbeanstalk/deployment/env ] && [ -d /var/app/current ]; then
   APP_DIR="/var/app/current"
