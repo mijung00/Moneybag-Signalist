@@ -2,7 +2,7 @@ from datetime import date, timedelta
 import logging
 
 # application.py에 정의된 통합 설정 로더를 가져옵니다.
-from application import config
+from common.config import config
 
 # 기존 모듈 임포트 (경로가 실제와 다를 경우 수정이 필요할 수 있습니다)
 import iceage.src.pipelines.daily_runner as iceage_runner

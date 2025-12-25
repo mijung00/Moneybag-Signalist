@@ -6,7 +6,6 @@ import secrets
 import pymysql
 import boto3
 import re
-import subprocess
 from flask import Flask, render_template, request, flash, redirect, url_for, Response
 import markdown
 from pathlib import Path
@@ -15,6 +14,9 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignat
 from botocore.exceptions import ClientError
 from threading import Thread
 from dotenv import load_dotenv
+
+# 새로 분리된 공유 설정 로더를 임포트합니다.
+from common.config import config
 
 # [FIX] Load .env file only in local development, not on the server.
 # The existence of the Beanstalk env file is a reliable indicator of the server environment.
@@ -46,57 +48,6 @@ s = URLSafeTimedSerializer(application.secret_key)
 # ----------------------------------------------------------------
 # [2] 설정 로더 (AWS 환경변수 & Secrets Manager 통합)
 # ----------------------------------------------------------------
-class ConfigLoader:
-    def __init__(self):
-        self.region = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
-        self.secrets_client = None
-        # EB 환경 변수 파일 로드 (부팅 시 1회 실행)
-        self._load_eb_env()
-
-    def _load_eb_env(self):
-        env_path = '/opt/elasticbeanstalk/deployment/env'
-        if os.path.exists(env_path):
-            with open(env_path, 'r') as f:
-                for line in f:
-                    line = line.strip().replace('export ', '')
-                    if '=' in line and not line.startswith('#'):
-                        key, value = line.split('=', 1)
-                        os.environ[key] = value.strip('"').strip("'")
-
-    def _get_secrets_client(self):
-        if not self.secrets_client:
-            self.secrets_client = boto3.client("secretsmanager", region_name=self.region)
-        return self.secrets_client
-
-    def ensure_secret(self, key, default=None):
-        """기존 셸의 ensure_secret_env 로직을 파이썬으로 완벽 구현"""
-        value = os.getenv(key, default)
-        
-        # 값이 이미 존재하고 ARN이 아니면 그대로 유지
-        if value and not value.startswith("arn:aws:secretsmanager"):
-            return value
-
-        sid = value if value and value.startswith("arn:aws:secretsmanager") else key
-        try:
-            client = self._get_secrets_client()
-            resp = client.get_secret_value(SecretId=sid)
-            secret_str = resp.get("SecretString")
-            
-            # JSON인 경우 파싱하여 해당 키값 추출
-            if secret_str and secret_str.strip().startswith("{"):
-                data = json.loads(secret_str)
-                final_val = data.get(key) or data.get("value") or secret_str
-            else:
-                final_val = secret_str
-            
-            os.environ[key] = final_val # 환경 변수에 주입
-            return final_val
-        except Exception as e:
-            logging.warning(f"Secret load failed for {key}: {e}")
-            return value
-
-config = ConfigLoader()
-
 # DB & S3 설정 로드
 DB_HOST = config.ensure_secret("DB_HOST")
 DB_PORT = int(config.ensure_secret("DB_PORT", "3306"))
@@ -229,18 +180,27 @@ def clean_html_content(raw_html: str) -> tuple[str, str]:
     return (style_tags, body_content.strip())
 
 def send_report_email_async(service_name, date_str, recipient_email):
-    """백그라운드에서 리포트 이메일을 발송하는 함수"""
+    """백그라운드에서 리포트 이메일을 발송하는 함수 (subprocess 제거 리팩토링)"""
     with app.app_context():
-        module_name = "iceage.src.pipelines.send_newsletter" if service_name == 'signalist' else "moneybag.src.pipelines.send_email"
-        
-        # 환경변수를 통해 이메일과 날짜 전달
-        env = os.environ.copy()
-        env["NEWSLETTER_AUTO_SEND"] = "0" # 구독자 DB 무시하고 강제 발송 (단건 발송)
-        env["TEST_RECIPIENT"] = recipient_email
-        
-        command = [sys.executable, "-m", module_name, date_str]
-        print(f"🚀 [Report Email] Executing: {' '.join(command)}")
-        subprocess.run(command, env=env)
+        try:
+            # 시크릿 로드 보장
+            config.ensure_secret("SENDGRID_API_KEY")
+            
+            # 환경 변수를 직접 설정하여 컨텍스트 전달
+            os.environ["NEWSLETTER_AUTO_SEND"] = "0"
+            os.environ["TEST_RECIPIENT"] = recipient_email
+
+            if service_name == 'signalist':
+                from iceage.src.pipelines import send_newsletter as iceage_sender
+                logging.info(f"Sending Signalist report for {date_str} to {recipient_email}")
+                iceage_sender.main(date_str)
+            else: # moneybag or whalehunter
+                from moneybag.src.pipelines import send_email as moneybag_sender
+                logging.info(f"Sending Moneybag report for {date_str} to {recipient_email}")
+                moneybag_sender.main(date_str)
+
+        except Exception as e:
+            logging.error(f"Failed to send report email: {e}", exc_info=True)
 
 def send_welcome_email_async(service_name, recipient_email):
     """[NEW] 신규 구독자에게 환영 메일을 발송하는 전용 함수"""
