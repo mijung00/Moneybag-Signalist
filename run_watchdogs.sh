@@ -58,6 +58,7 @@ ensure_secret_env () {
   if [[ -z "$s" || "$s" == "None" ]]; then echo "[WARN] secret not loaded: $k"; return 0; fi
   s="$(extract_json_value "$k" "$s")"
   export "$k=$s"
+  echo "[$(date)] [Secret] Loaded secret for $k"
 }
 
 # Watchdog이 사용할 수 있는 시크릿 (필요 시 추가)
