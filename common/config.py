@@ -8,18 +8,6 @@ class ConfigLoader:
     def __init__(self):
         self.region = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
         self.secrets_client = None
-        # EB 환경 변수 파일 로드 (부팅 시 1회 실행)
-        self._load_eb_env()
-
-    def _load_eb_env(self):
-        env_path = '/opt/elasticbeanstalk/deployment/env'
-        if os.path.exists(env_path):
-            with open(env_path, 'r') as f:
-                for line in f:
-                    line = line.strip().replace('export ', '')
-                    if '=' in line and not line.startswith('#'):
-                        key, value = line.split('=', 1)
-                        os.environ[key] = value.strip('"').strip("'")
 
     def _get_secrets_client(self):
         if not self.secrets_client:
