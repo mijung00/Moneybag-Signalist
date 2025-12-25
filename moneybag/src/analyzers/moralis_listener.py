@@ -2,6 +2,10 @@ import os
 import json
 from flask import Flask, request, abort
 from datetime import datetime, timezone
+# watchdogs.py 또는 moralis_listener.py 의 최상단
+from common.config import config
+
+
 
 # --- 설정 ---
 # 이 파일은 Moralis Stream Webhook이 호출할 때마다 거래 내역을 기록합니다.

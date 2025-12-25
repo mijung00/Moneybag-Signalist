@@ -4,6 +4,10 @@ import time
 import os
 from datetime import datetime, timedelta
 
+# watchdogs.py 또는 moralis_listener.py 의 최상단
+from common.config import config
+
+
 WATCHDOGS = [
     ("iceage.src.pipelines.stock_watchdog", "ICEAGE_HEARTBEAT_PATH", 180),   # 3분
     ("moneybag.src.pipelines.market_watchdog", "MONEYBAG_HEARTBEAT_PATH", 180),
