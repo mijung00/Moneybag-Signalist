@@ -376,11 +376,42 @@ def generate_all_strategies(df, regime_info):
         # (3) 점수 산정
         base_score = 50
         if count < 3:
-            score = 40 
+            backtest_score = 40 
         else:
-            score = base_score + (win_rate - 50) + (avg_ret * 3)
+            backtest_score = base_score + (win_rate - 50) + (avg_ret * 3)
             
-        score = min(99, max(1, int(score)))
+        # --- [NEW] 국면 적합도(Regime Fit) 점수 산정 ---
+        main_regime = regime_info.get('main_regime', 'Range')
+        tactical_state = regime_info.get('tactical_state', 'Neutral')
+        is_short_strategy = '(Short)' in name
+
+        # 4-1. 매크로(대국면) 점수: 현재 큰 추세와 전략의 방향이 일치하는가?
+        macro_score = 50
+        if main_regime == 'Bull':
+            if not is_short_strategy: macro_score = 90 # 상승장에서는 롱(Long) 전략에 가산점
+            else: macro_score = 20 # 숏(Short) 전략에는 감점
+        elif main_regime == 'Bear':
+            if is_short_strategy: macro_score = 90 # 하락장에서는 숏(Short) 전략에 가산점
+            else: macro_score = 20 # 롱(Long) 전략에는 감점
+
+        # 4-2. 서브(전술 국면) 점수: 현재 단기 상황에 적합한 전술인가?
+        sub_score = 50
+        if tactical_state == 'Panic_Dump' and type_ == 'Reversal' and not is_short_strategy:
+            sub_score = 100 # 투매 상황에서는 역추세 매수 전략이 최적
+        elif tactical_state == 'FOMO_Pump' and type_ == 'Momentum' and not is_short_strategy:
+            sub_score = 100 # 과열 펌핑에서는 추세 추종 전략이 최적
+        elif tactical_state == 'High_Vol_Chop' and type_ == 'Momentum':
+            sub_score = 85 # 높은 변동성에서는 돌파 전략이 유효
+        elif tactical_state == 'Boring_Sideways' and type_ == 'Reversal':
+            sub_score = 85 # 지루한 횡보장에서는 박스권 역추세 전략이 유효
+        
+        # 4-3. 국면 적합도 최종 점수 (단기 국면 가중치 70%)
+        regime_fit_score = (macro_score * 0.3) + (sub_score * 0.7)
+
+        # (5) 최종 점수 산정 (백테스트 50%, 국면 적합도 50%)
+        final_score = (backtest_score * 0.5) + (regime_fit_score * 0.5)
+        score = min(99, max(1, int(final_score)))
+        # --- [NEW] 로직 끝 ---
 
         # 오늘 신호가 떴다면 결과에 추가
         if is_triggered:

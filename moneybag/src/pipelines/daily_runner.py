@@ -1,6 +1,7 @@
 import sys
 import time
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,6 +21,7 @@ from moneybag.src.pipelines.daily_newsletter import DailyNewsletter
 from moneybag.src.pipelines.generate_cardnews_assets import CardNewsFactory
 from moneybag.src.pipelines.generate_summary_image import SummaryImageGenerator
 from moneybag.src.pipelines.send_email import EmailSender
+from moneybag.src.pipelines.report_postprocessor import ReportPostProcessor
 from moneybag.src.utils.slack_notifier import SlackNotifier
 
 # [추가] S3 매니저 가져오기
@@ -54,6 +56,7 @@ def run_routine(mode="morning"):
     newsletter = DailyNewsletter()
     card_factory = CardNewsFactory()
     email_sender = EmailSender()
+    post_processor = ReportPostProcessor()
     
     generated_md_path = None # [추가] 생성된 파일 경로를 저장할 변수
     # 👇 [수정] 한국 시간(KST) 기준으로 날짜를 뽑도록 변경!
@@ -95,6 +98,15 @@ def run_routine(mode="morning"):
         try: notifier.send_message(error_msg) 
         except: pass
         return # 중단
+
+    # ---------------------------------------------------------
+    # 1.5단계: [NEW] 전략 다양성 확보를 위한 페널티 적용
+    # ---------------------------------------------------------
+    try:
+        print("\n1️⃣-2️⃣ 리포트 후처리 및 전략 다양성 보정 중...")
+        post_processor.run(generated_md_path)
+    except Exception as e:
+        print(f"⚠️ [Warning] 페널티 적용 실패 (계속 진행): {e}")
 
     # ---------------------------------------------------------
     # 2단계: 카드뉴스 생성
