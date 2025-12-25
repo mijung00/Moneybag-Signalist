@@ -62,6 +62,10 @@
             sandbox="allow-same-origin">
     </iframe>
 
+    <!-- [수정] 공유하기 버튼과 구독 배너를 iframe 바깥으로 이동 -->
+    {% include '_share_buttons.html' %}
+    {% include '_subscribe_cta.html' %}
+
 {% else %}
     <!-- 콘텐츠 없음 -->
     <div class="text-center py-20 bg-gray-50 rounded-lg">

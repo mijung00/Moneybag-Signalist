@@ -172,23 +172,12 @@ def clean_html_content(raw_html: str) -> tuple[str, str]:
     body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)
     body_content = body_match.group(1) if body_match else raw_html
 
-    # 3. 푸터 제거 로직 (후방 탐색)
-    # 푸터는 보통 문서 맨 마지막에 있으므로, 뒤에서부터 제거하는 것이 안전합니다.
-    markers = ["(주)비제이유앤아이", "더 이상 수신을 원하지 않으시면"]
-    cut_pos = len(body_content)
-
-    for marker in markers:
-        pos = body_content.rfind(marker) # rfind로 뒤에서부터 찾음
-        if pos != -1:
-            # 마커를 포함하는 가장 가까운 상위 <table> 태그의 시작점을 찾습니다.
-            table_start = body_content.rfind('<table', 0, pos)
-            if table_start != -1:
-                # 발견된 테이블 시작점 중 가장 작은 값(가장 먼저 나오는 푸터 테이블)을 기록
-                cut_pos = min(cut_pos, table_start)
-
-    # 푸터 테이블을 찾았다면, 해당 위치에서부터 끝까지 잘라냅니다.
-    if cut_pos < len(body_content):
-        body_content = body_content[:cut_pos]
+    # 3. [수정] 푸터 제거 로직 정교화
+    # send_email.py에서 푸터는 <div class="footer">...</div> 형태로 감싸져 있습니다.
+    # rfind로 가장 마지막에 있는 푸터의 시작점을 찾아 그 지점부터의 모든 내용을 잘라냅니다.
+    footer_start_pos = body_content.rfind('<div class="footer">')
+    if footer_start_pos != -1:
+        body_content = body_content[:footer_start_pos]
 
     return (style_tags, body_content.strip())
 
@@ -526,12 +515,10 @@ def archive_view(service_name, date_str):
     if all_body_parts:
         unique_styles = "".join(list(dict.fromkeys(all_styles)))
         
-        # [NEW] 스타일 격리를 위해 전체 HTML 문서를 생성하고, 공유/구독 버튼을 내부에 포함
-        share_buttons_html = render_template('_share_buttons.html')
-        subscribe_cta_html = render_template('_subscribe_cta.html')
-        
-        full_body = "".join(all_body_parts) + share_buttons_html + subscribe_cta_html
+        # [수정] 공유/구독 버튼은 iframe 외부로 이동했으므로, 여기서는 본문만 생성
+        full_body = "".join(all_body_parts)
         # [중요] iframe에서 사용할 것이므로, 완전한 HTML 구조를 만듭니다.
+        # [수정] iframe 내부에서는 외부 스크립트가 동작하지 않으므로, 스크립트 태그는 제거
         content_html = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>{unique_styles}</style></head><body>{full_body}</body></html>"
 
     return render_template(

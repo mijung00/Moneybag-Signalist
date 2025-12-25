@@ -103,7 +103,15 @@ class ReportPostProcessor:
             for i, (name, score) in enumerate(penalized_scores.items()):
                 info = next((s for s in parsed_strategies if s['name'] == name), None)
                 if info:
-                    new_table_rows.append(f"| {i+1} | {name} | {info['type']} | {int(round(score))} | {info['description']} |")
+                    # [수정] f-string 내부의 복잡성을 줄여 포맷팅 오류를 방지
+                    rank = i + 1
+                    strat_name = name
+                    strat_type = info.get('type', '')
+                    strat_score = int(round(score))
+                    strat_desc = info.get('description', '')
+                    new_row = f"| {rank} | {strat_name} | {strat_type} | {strat_score} | {strat_desc} |"
+                    new_table_rows.append(new_row)
+
                     if i < 3: top_3_strategies_after_penalty.append(info)
             
             new_content = content.replace(original_table_str.strip(), "\n".join(new_table_rows))
