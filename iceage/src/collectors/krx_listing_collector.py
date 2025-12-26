@@ -219,16 +219,19 @@ def save_listing(date_str: str) -> Path | None:
     return out_path
 
 
-def main():
+def main(ref_date=None, *args, **kwargs):
     """
     사용 예:
       (.venv) PS C:\\project> python -m iceage.src.collectors.krx_listing_collector 2025-11-14
     """
-    if len(sys.argv) < 2:
-        print("사용법: python -m iceage.src.collectors.krx_listing_collector YYYY-MM-DD")
-        sys.exit(1)
+    # 함수 인자(ref_date)를 최우선으로 사용하고, 없으면 sys.argv를 확인합니다.
+    if ref_date is None:
+        if len(sys.argv) > 1:
+            ref_date = sys.argv[1]
+        else:
+            print("사용법: python -m iceage.src.collectors.krx_listing_collector YYYY-MM-DD")
+            sys.exit(1)
 
-    ref_date = sys.argv[1]
     save_listing(ref_date)
 
 

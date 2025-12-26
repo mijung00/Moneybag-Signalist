@@ -20,7 +20,7 @@ cron:
 
   - name: "moneybag-night-report"
     url: "/worker/moneybag-night"
-    schedule: "40 01 * * *" # KST 21:00
+    schedule: "35 05 * * *" # KST 14:35 (임시 테스트)
 
   - name: "iceage-weekly-report"
     url: "/worker/iceage-weekly"

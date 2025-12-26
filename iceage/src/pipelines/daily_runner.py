@@ -142,8 +142,10 @@ def main() -> None:
     # ---------------------------------------------------------
     # [젬공의 책략 2] 기준일 설정
     # ---------------------------------------------------------
-    if len(sys.argv) >= 2:
-        arg1 = sys.argv[1]
+    # 함수 인자(arg)를 최우선으로 사용하고, 없으면 sys.argv를 확인합니다.
+    arg1 = arg if arg is not None else (sys.argv[1] if len(sys.argv) > 1 else None)
+
+    if arg1:
         # 'newsletter' 인자는 무시하고 기본 날짜 계산 로직을 따르도록 수정
         if arg1 == 'newsletter':
             ref = compute_reference_date(cal, now)

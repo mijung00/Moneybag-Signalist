@@ -184,14 +184,17 @@ def run_routine(mode="morning"):
     print(f"\n🏃 [Runner] {mode.upper()} 루틴 정상 종료!")
 
 
-if __name__ == "__main__":
-    import sys
-    mode_arg = sys.argv[1] if len(sys.argv) > 1 else "morning"
+def main(mode="morning", *args, **kwargs):
+    """
+    머니백 데일리 루틴의 표준 진입점.
+    runner.py에서 호출하기 위해 run_routine을 래핑합니다.
+    """
+    mode_arg = mode if mode in ("morning", "night") else "morning"
     mode_arg = (mode_arg or "morning").strip().lower()
     mode_arg = mode_arg.replace("\r", "")
-
-    if mode_arg not in ("morning", "night"):
-        print(f"[Warning] invalid mode='{mode_arg}', fallback to morning")
-        mode_arg = "morning"
-
     run_routine(mode_arg)
+
+if __name__ == "__main__":
+    import sys
+    mode_from_cli = sys.argv[1] if len(sys.argv) > 1 else "morning"
+    main(mode=mode_from_cli)

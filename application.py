@@ -740,60 +740,60 @@ def worker_newsletter():
     try:
         # run_iceage.sh newsletter 와 동일
         run_iceage_task("newsletter")
-        return Response("Newsletter Task Success", status=200)
+        return Response("Newsletter task processed.", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/newsletter failed: {e}", exc_info=True)
-        return Response(str(e), status=500)
+        return Response("Task failed but acknowledged to prevent SQS retry.", status=200)
 
 @application.route('/worker/moneybag-morning', methods=['POST'])
 def worker_moneybag_morning():
     """머니백 모닝 리포트 발송 태스크"""
     try:
         run_moneybag_task("morning")
-        return Response("Moneybag Morning Task Success", status=200)
+        return Response("Moneybag Morning task processed.", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/moneybag-morning failed: {e}", exc_info=True)
-        return Response(str(e), status=500)
+        return Response("Task failed but acknowledged to prevent SQS retry.", status=200)
 
 @application.route('/worker/moneybag-night', methods=['POST'])
 def worker_moneybag_night():
     """머니백 나이트 리포트 발송 태스크"""
     try:
         run_moneybag_task("night")
-        return Response("Moneybag Night Task Success", status=200)
+        return Response("Moneybag Night task processed.", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/moneybag-night failed: {e}", exc_info=True)
-        return Response(str(e), status=500)
+        return Response("Task failed but acknowledged to prevent SQS retry.", status=200)
 
 @application.route('/worker/krx', methods=['POST'])
 def worker_krx_batch():
     """KRX 데이터 수집 배치 태스크"""
     try:
         msg = run_krx_batch_task(days=3)
-        return Response(msg, status=200)
+        return Response(f"KRX Batch task processed: {msg}", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/krx failed: {e}", exc_info=True)
-        return Response(str(e), status=500)
+        return Response("Task failed but acknowledged to prevent SQS retry.", status=200)
 
 @application.route('/worker/iceage-weekly', methods=['POST'])
 def worker_iceage_weekly():
     """시그널리스트 주간 리포트 발송 태스크"""
     try:
         run_iceage_weekly_task()
-        return Response("IceAge Weekly Task Success", status=200)
+        return Response("IceAge Weekly task processed.", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/iceage-weekly failed: {e}", exc_info=True)
-        return Response(str(e), status=500)
+        return Response("Task failed but acknowledged to prevent SQS retry.", status=200)
 
 @application.route('/worker/iceage-monthly', methods=['POST'])
 def worker_iceage_monthly():
     """시그널리스트 월간 리포트 발송 태스크"""
     try:
         run_iceage_monthly_task()
-        return Response("IceAge Monthly Task Success", status=200)
+        return Response("IceAge Monthly task processed.", status=200)
     except Exception as e:
         logging.error(f"Worker task /worker/iceage-monthly failed: {e}", exc_info=True)
-        return Response(str(e), status=500)
+        return Response("Task failed but acknowledged to prevent SQS retry.", status=200)
 
 
 # 애플리케이션 시작 시 칼럼 데이터 로드 (모듈 임포트 시점에 실행)

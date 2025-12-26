@@ -19,7 +19,10 @@ def run_iceage_task(arg=None):
     
     # 셸 스크립트 대신, 직접 파이썬 모듈의 main 함수를 호출합니다.
     logging.info(f"Starting IceAge task with arg: {arg}")
-    return iceage_runner.main() if hasattr(iceage_runner, 'main') else "Module Error: iceage_runner.main not found"
+    # arg를 전달하도록 수정합니다. 호출되는 main 함수는 def main(arg=None): 형태로 인자를 받을 수 있어야 합니다.
+    if hasattr(iceage_runner, 'main'):
+        return iceage_runner.main(arg)
+    return "Module Error: iceage_runner.main not found"
 
 def run_moneybag_task(mode="morning"):
     """run_moneybag.sh를 대체하는 파이썬 함수"""
@@ -27,7 +30,9 @@ def run_moneybag_task(mode="morning"):
         config.ensure_secret(k)
 
     logging.info(f"Starting Moneybag task with mode: {mode}")
-    return moneybag_runner.main(mode) if hasattr(moneybag_runner, 'main') else "Module Error: moneybag_runner.main not found"
+    if hasattr(moneybag_runner, 'main'):
+        return moneybag_runner.main(mode)
+    return "Module Error: moneybag_runner.main not found"
 
 def run_krx_batch_task(days=3):
     """run_krx_batch.sh의 3일치 데이터 수집 로직을 대체하는 파이썬 함수"""
@@ -39,13 +44,18 @@ def run_krx_batch_task(days=3):
     
     logging.info(f"Starting KRX Batch task for {days} days...")
     for i in range(days):
-        target_date_str = (today - timedelta(days=i)).strftime("%Y%m%d")
+        target_date = today - timedelta(days=i)
+        # [수정] 콜렉터가 요구하는 YYYY-MM-DD 형식으로 날짜를 전달합니다.
+        target_date_str = target_date.strftime("%Y-%m-%d")
         logging.info(f"  -> Processing KRX data for {target_date_str}")
         
         # 셸 스크립트처럼 각 콜렉터를 순차적으로 직접 호출합니다.
-        krx_listing_collector.main(target_date_str)
-        krx_index_collector.main(target_date_str)
-        krx_daily_price_collector.main(target_date_str)
+        if hasattr(krx_listing_collector, 'main'):
+            krx_listing_collector.main(target_date_str)
+        if hasattr(krx_index_collector, 'main'):
+            krx_index_collector.main(target_date_str)
+        if hasattr(krx_daily_price_collector, 'main'):
+            krx_daily_price_collector.main(target_date_str)
         results.append(target_date_str)
     
     return f"KRX Batch Completed for dates: {', '.join(results)}"
@@ -56,7 +66,9 @@ def run_iceage_weekly_task():
         config.ensure_secret(k)
     
     logging.info("Starting IceAge Weekly Report task...")
-    return iceage_weekly_runner.main() if hasattr(iceage_weekly_runner, 'main') else "Module Error: iceage_weekly_runner.main not found"
+    if hasattr(iceage_weekly_runner, 'main'):
+        return iceage_weekly_runner.main()
+    return "Module Error: iceage_weekly_runner.main not found"
 
 def run_iceage_monthly_task():
     """run_iceage_monthly.sh를 대체하는 파이썬 함수"""
@@ -64,4 +76,6 @@ def run_iceage_monthly_task():
         config.ensure_secret(k)
 
     logging.info("Starting IceAge Monthly Report task...")
-    return iceage_monthly_runner.main() if hasattr(iceage_monthly_runner, 'main') else "Module Error: iceage_monthly_runner.main not found"
+    if hasattr(iceage_monthly_runner, 'main'):
+        return iceage_monthly_runner.main()
+    return "Module Error: iceage_monthly_runner.main not found"

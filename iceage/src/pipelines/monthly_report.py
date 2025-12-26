@@ -132,5 +132,9 @@ def run_monthly_routine():
         notifier.send_message(error_msg)
     print(f"\n🏃 [Monthly Runner] 월간 리포트 루틴을 종료합니다.")
 
+def main(*args, **kwargs):
+    """runner.py에서 호출하기 위한 표준 진입점."""
+    run_monthly_routine()
+
 if __name__ == "__main__":
     run_monthly_routine()
