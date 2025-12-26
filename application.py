@@ -658,7 +658,7 @@ def sitemap_xml():
         print(f"❌ [Sitemap Error] {e}")
         return Response(f"Sitemap generation error: {e}", status=500, mimetype='text/plain')
 
-@application.route('/health')
+@application.route('/health', methods=['GET', 'POST'])
 def health_check():
     return "OK", 200
 
