@@ -132,12 +132,13 @@ class DailyNewsletter:
                 try: fr_rate = float(funding_data['funding_rate'].strip('%'))
                 except: fr_rate = 0.0
                 fr_status = "롱과열" if fr_rate > 0.02 else ("숏우세" if fr_rate < -0.01 else "중립")
-                vol_str = "평범"
+                vol_str = "⚠️데이터없음" # [수정] 기본값을 '데이터 없음'으로 변경
                 if whale_data:
                     ratio = whale_data.get('vol_spike_ratio', 1.0)
                     if ratio > 2.5: vol_str = f"🔥폭발({ratio:.1f}x)"
                     elif ratio > 1.5: vol_str = f"⚡활발({ratio:.1f}x)"
                     elif ratio < 0.6: vol_str = f"💧말라감"
+                    else: vol_str = "평범" # [추가] 데이터가 있을 때만 '평범'으로 표시
                 row = f"| **{coin}** | ${price_val:,.2f}<br>({chg_icon}{change_pct}%) | {kimp}%{kimp_icon} | {fr_rate:.4f}%<br>({fr_status}) | {vol_str} |\n"
                 table_str += row
             else:

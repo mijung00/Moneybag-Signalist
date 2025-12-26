@@ -1,7 +1,8 @@
 import os
 import json
 from flask import Flask, request, abort
-from datetime import datetime, timezone
+from datetime import datetime
+import pymysql
 
 # --- 설정 ---
 # 이 파일은 Moralis Stream Webhook이 호출할 때마다 거래 내역을 기록합니다.
@@ -22,8 +23,8 @@ from datetime import datetime, timezone
 app = Flask(__name__)
 
 # 데이터 저장 경로
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'out')
-WHALE_LOG_FILE = os.path.join(DATA_DIR, 'whale_transactions.jsonl')
+# DATA_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'out')
+# WHALE_LOG_FILE = os.path.join(DATA_DIR, 'whale_transactions.jsonl')
 
 # Moralis Stream 설정에서 복사한 API 키 (Webhook 서명 검증용)
 MORALIS_API_KEY = os.getenv("MORALIS_API_KEY")
@@ -44,6 +45,18 @@ def verify_signature(request):
     # 지금은 헤더 존재 여부만 체크
     return True
 
+def get_db_connection():
+    """DB 연결 객체 반환"""
+    # 환경변수에서 DB 접속 정보 로드
+    return pymysql.connect(
+        host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT", 3306)),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        db=os.getenv("DB_NAME"),
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
 
 @app.route('/moralis-webhook', methods=['POST'])
 def moralis_webhook():
@@ -72,14 +85,31 @@ def moralis_webhook():
                 'transaction_hash': tx.get('transactionHash')
             }
 
-            # 파일에 쓰기 전에 디렉터리가 존재하는지 확인하고 없으면 생성합니다.
-            os.makedirs(DATA_DIR, exist_ok=True)
-
-            # 파일에 한 줄씩 추가 (JSON Lines 형식)
-            with open(WHALE_LOG_FILE, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(whale_tx) + '\n')
-            
-            print(f"  -> 📝 로그 기록: {whale_tx['symbol']} ${whale_tx['amount_usd']:,.0f}")
+            # [수정] 파일 대신 DB에 데이터 저장
+            conn = get_db_connection()
+            try:
+                with conn.cursor() as cursor:
+                    sql = """
+                    INSERT IGNORE INTO whale_transactions 
+                    (symbol, amount_usd, from_address, to_address, transaction_hash, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """
+                    # Moralis 타임스탬프(ISO 8601)를 DB DATETIME 형식으로 변환
+                    ts_obj = datetime.fromisoformat(whale_tx['timestamp'].replace('Z', '+00:00'))
+                    ts_str = ts_obj.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    cursor.execute(sql, (
+                        whale_tx['symbol'],
+                        whale_tx['amount_usd'],
+                        whale_tx['from']['owner'],
+                        whale_tx['to']['owner'],
+                        whale_tx['transaction_hash'],
+                        ts_str
+                    ))
+                conn.commit()
+                print(f"  -> 💾 DB에 저장: {whale_tx['symbol']} ${whale_tx['amount_usd']:,.0f}")
+            finally:
+                conn.close()
 
         except Exception as e:
             print(f"  -> ⚠️ 로그 처리 중 오류: {e}")
@@ -87,9 +117,7 @@ def moralis_webhook():
     return {"status": "ok"}, 200
 
 if __name__ == '__main__':
-    # 로컬에서 직접 실행할 때만 로그 디렉토리 생성
-    os.makedirs(DATA_DIR, exist_ok=True)
     print(f"🐋 Moralis 고래 추적 리스너(Webhook 서버)를 시작합니다.")
-    print(f"   - 로그 파일: {WHALE_LOG_FILE}")
+    print(f"   - 데이터 저장소: 중앙 DB (whale_transactions 테이블)")
     print(f"   - 수신 주소: http://0.0.0.0:5001/moralis-webhook")
     app.run(host='0.0.0.0', port=5001)

@@ -8,6 +8,7 @@ now = datetime.now(ZoneInfo("Asia/Seoul"))
 
 
 import time
+import subprocess
 
 # 경로 설정
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -52,6 +53,34 @@ def validate_markdown(text):
 def run_routine(mode="morning"):
     print(f"\n🏃 [Runner] {mode.upper()} 루틴을 시작합니다...")
     routine_start_time = time.time()
+    
+    # ---------------------------------------------------------
+    # [수정] 워커 환경 데이터 동기화 (S3에서 전체 데이터 폴더 다운로드)
+    # ---------------------------------------------------------
+    if S3Manager:
+        try:
+            print("\n☁️ [S3 Sync] 워커에 필요한 데이터 동기화 중 (moneybag/data)...")
+            s3 = S3Manager()
+            
+            # 로컬 data 폴더 경로
+            local_data_dir = BASE_DIR / "moneybag" / "data"
+            local_data_dir.mkdir(parents=True, exist_ok=True)
+            
+            # S3 경로
+            s3_data_dir = f"s3://{s3.bucket_name}/moneybag/data/"
+            
+            # aws-cli를 사용하여 S3와 로컬 디렉토리 동기화 (iceage 방식과 동일)
+            # 이 명령은 whale_transactions.jsonl 및 PostProcessor에 필요한 과거 데이터 모두를 가져옵니다.
+            sync_cmd = ["aws", "s3", "sync", s3_data_dir, str(local_data_dir), "--quiet"]
+            subprocess.run(sync_cmd, check=True, timeout=300)
+            print("   -> 동기화 완료.")
+        except FileNotFoundError:
+            # aws-cli가 설치되지 않은 로컬 환경 등에서 발생할 수 있음
+            print(f"⚠️ [S3 Sync Warning] 'aws' 명령을 찾을 수 없습니다. aws-cli가 설치되어 있는지 확인하세요.")
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️ [S3 Sync Error] 데이터 동기화 실패 (aws s3 sync): {e}")
+        except Exception as e:
+            print(f"⚠️ [S3 Sync Warning] 데이터 동기화 중 예외 발생 (계속 진행): {e}")
     
     notifier = SlackNotifier()
     newsletter = DailyNewsletter()
