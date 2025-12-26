@@ -1,67 +1,82 @@
-import ccxt
-import pandas as pd
-import numpy as np
+import os
+import pymysql
+from datetime import datetime, timedelta
 
 class WhaleAlertTracker:
     def __init__(self):
-        # 선물 시장 데이터 사용 (고래들은 선물에서 먼저 움직입니다)
-        self.binance = ccxt.binance({'options': {'defaultType': 'future'}})
+        # DB 연결 정보는 환경변수에서 로드됩니다.
+        pass
 
-    def analyze_volume_anomaly(self, symbol="BTC/USDT", timeframe='1h', limit=50):
+    def _get_db_connection(self):
         """
-        [고래 개입 탐지 알고리즘]
-        논리: 거래량 폭증(Volume Spike) + 가격 횡보 = 매집(Accumulation)
+        DB 연결 객체를 반환합니다.
+        moralis_listener.py와 동일한 로직을 사용하여 중앙 DB에 접속합니다.
         """
         try:
-            # 캔들 데이터 조회 (Open, High, Low, Close, Volume)
-            ohlcv = self.binance.fetch_ohlcv(symbol, timeframe, limit=limit)
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            
-            # 1. 최근 20개 캔들 평균 거래량 계산
-            df['vol_ma'] = df['volume'].rolling(window=20).mean()
-            
-            # 2. 현재 캔들 분석
-            last = df.iloc[-1]
-            prev_vol_ma = df.iloc[-2]['vol_ma']
-            
-            # 거래량이 평소보다 몇 배나 터졌는가? (Spike Ratio)
-            vol_spike_ratio = last['volume'] / prev_vol_ma if prev_vol_ma > 0 else 0
-            
-            # 캔들 몸통 크기 (시가 대비 종가 변동폭)
-            body_size = abs(last['close'] - last['open']) / last['open'] * 100
-            price_change_pct = (last['close'] - last['open']) / last['open'] * 100
-
-            # 3. 시그널 판독
-            signal = "N/A"
-            comment = "특이사항 없음"
-
-            # 조건: 평소보다 거래량이 2.5배 이상 터졌을 때
-            if vol_spike_ratio >= 2.5:
-                if body_size < 0.5: 
-                    # 케이스 A: 거래량 폭발 + 가격 제자리 (가장 강력한 신호!)
-                    signal = "🐳 스텔스 매집 (Whale Accumulation)"
-                    comment = f"거래량은 {vol_spike_ratio:.1f}배 터졌는데 가격은 묶여있음. 누군가 물량을 다 받아먹는 중!"
-                
-                elif price_change_pct > 1.5:
-                    # 케이스 B: 거래량 폭발 + 장대 양봉
-                    signal = "🚀 상승 발사 (Trend Start)"
-                    comment = "강력한 매수세와 함께 추세가 위로 뚫림. 올라타야 할 때."
-                
-                elif price_change_pct < -1.5:
-                    # 케이스 C: 거래량 폭발 + 장대 음봉
-                    signal = "🩸 패닉 셀링 (Panic Sell)"
-                    comment = "투매가 쏟아지는 중. 바닥인지 지하실인지 확인 필요."
-
-            return {
-                "symbol": symbol,
-                "vol_spike_ratio": round(vol_spike_ratio, 2),
-                "signal": signal,
-                "comment": comment
-            }
-
+            return pymysql.connect(
+                host=os.getenv("DB_HOST"),
+                port=int(os.getenv("DB_PORT", 3306)),
+                user=os.getenv("DB_USER"),
+                password=os.getenv("DB_PASSWORD"),
+                db=os.getenv("DB_NAME"),
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
         except Exception as e:
-            print(f"Whale Tracker Error ({symbol}): {e}")
+            print(f"❌ [WhaleAlertTracker] DB 연결 실패: {e}")
             return None
+
+    def analyze_volume_anomaly(self, pair_future: str, hours: int = 24):
+        """
+        [수정] 로컬 파일이나 ccxt 대신, 중앙 DB에서 지난 24시간 거래량을 집계하여 분석합니다.
+        """
+        symbol = pair_future.replace('/USDT', '')
+        conn = self._get_db_connection()
+        if not conn:
+            return None # DB 연결 실패 시 None 반환
+
+        try:
+            with conn.cursor() as cursor:
+                now = datetime.now()
+                time_threshold = now - timedelta(hours=hours)
+                
+                # 지난 24시간(현재 구간) 거래량 합계 조회
+                sql = """
+                SELECT SUM(amount_usd) as total_volume
+                FROM whale_transactions
+                WHERE symbol = %s AND timestamp >= %s
+                """
+                cursor.execute(sql, (symbol, time_threshold))
+                result = cursor.fetchone()
+                current_volume = result['total_volume'] if result and result['total_volume'] else 0
+
+                # 그 이전 24시간(비교 구간) 거래량 합계 조회
+                prev_time_threshold = time_threshold - timedelta(hours=hours)
+                sql_prev = """
+                SELECT SUM(amount_usd) as total_volume
+                FROM whale_transactions
+                WHERE symbol = %s AND timestamp >= %s AND timestamp < %s
+                """
+                cursor.execute(sql_prev, (symbol, prev_time_threshold, time_threshold))
+                result_prev = cursor.fetchone()
+                previous_volume = result_prev['total_volume'] if result_prev and result_prev['total_volume'] else 0
+        except Exception as e:
+            print(f"❌ [WhaleAlertTracker] DB 쿼리 실패: {e}")
+            return None
+        finally:
+            if conn.open:
+                conn.close()
+
+        # 거래량 급증 비율 계산
+        if previous_volume == 0:
+            vol_spike_ratio = 5.0 if current_volume > 0 else 1.0
+        else:
+            vol_spike_ratio = current_volume / previous_volume
+
+        return {
+            'symbol': symbol,
+            'vol_spike_ratio': vol_spike_ratio
+        }
 
 # --- 테스트 실행용 ---
 if __name__ == "__main__":
@@ -70,8 +85,8 @@ if __name__ == "__main__":
     
     print("🐳 고래 추적 레이더 가동 중...")
     for t in targets:
-        res = tracker.analyze_volume_anomaly(t)
-        if res and res['signal'] != "N/A":
-            print(f"[{t}] 🚨 {res['signal']} - {res['comment']}")
+        res = tracker.analyze_volume_anomaly(t.replace("USDT", "/USDT"))
+        if res:
+            print(f"[{t}] 거래량 스파이크 비율: {res['vol_spike_ratio']:.2f}x")
         else:
-            print(f"[{t}] 잠잠함 (거래량 배수: {res['vol_spike_ratio']}배)")
+            print(f"[{t}] 데이터 분석 실패")

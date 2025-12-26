@@ -7,9 +7,9 @@ cron:
     url: "/worker/newsletter"
     schedule: "0 22 * * *" # KST 07:00
 
-  - name: "moneybag-morning-report"
-    url: "/worker/moneybag-morning"
-    schedule: "30 22 * * *" # KST 07:30
+  # - name: "moneybag-morning-report"
+  #   url: "/worker/moneybag-morning"
+  #   schedule: "30 22 * * *" # KST 07:30
 
   # ======================================================
   # Evening & Night Tasks (KST)
@@ -18,9 +18,9 @@ cron:
     url: "/worker/krx"
     schedule: "0 11 * * *" # KST 20:00
 
-  - name: "moneybag-night-report"
-    url: "/worker/moneybag-night"
-    schedule: "0 12 * * *" # KST 21:00
+  # - name: "moneybag-night-report"
+  #   url: "/worker/moneybag-night"
+  #   schedule: "0 12 * * *" # KST 21:00
 
   - name: "iceage-weekly-report"
     url: "/worker/iceage-weekly"

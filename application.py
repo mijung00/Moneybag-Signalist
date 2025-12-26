@@ -36,7 +36,7 @@ application = Flask(__name__)
 app = application  # 로컬 실행 호환용 Alias
 
 # [수정] SECRET_KEY를 환경변수에서 가져오도록 변경 (서버 재시작 시에도 토큰 유지를 위함)
-application.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
+application.secret_key = config.ensure_secret('SECRET_KEY', secrets.token_hex(16))
 # 구독 취소 토큰을 위한 Serializer 초기화
 s = URLSafeTimedSerializer(application.secret_key)
 

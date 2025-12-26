@@ -1,57 +1,42 @@
 name: Deploy to AWS Elastic Beanstalk
 
 on:
+  # 1. 'main' 브랜치에 푸시될 때 (웹/워커 자동 배포용)
   push:
     branches:
-      - main # 'main' 브랜치에 푸시될 때만 실행
+      - main
+  # 2. GitHub Actions 탭에서 수동으로 실행할 수 있도록 함 (왓치독 배포용)
+  workflow_dispatch:
 
 jobs:
-  # ----------------------------------------------------
-  # [STEP 1] Build: 배포용 압축 파일을 한 번만 생성합니다.
-  # ----------------------------------------------------
-  build:
+  # ====================================================================
+  # JOB 1: 웹 & 작업자 환경 자동 배포
+  # ====================================================================
+  deploy-app:
     runs-on: ubuntu-latest
+    # 'main' 브랜치에 푸시되었을 때만 이 Job을 실행합니다.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      # 1. 깃허브에 있는 코드 내려받기
       - name: Checkout source code
         uses: actions/checkout@v3
 
-      # 2. 배포용 압축파일 만들기 (기존과 동일)
       - name: Generate deployment package
         run: |
           zip -r deploy.zip . \
-          -x "*.git*" \
-          -x "*.github*" \
-          -x "venv/*" \
-          -x "keys/*" \
-          -x "secrets/*" \
-          -x "*.pem" \
-          -x "__pycache__/*" \
-          -x "*.DS_Store" \
-          -x ".env" \
-          -x "iceage/data/*" \
-          -x "moneybag/data/*" \
-          -x "*.csv" \
-          -x "*.jsonl"
-
-      # 3. 생성된 압축파일을 다른 Job에서 쓸 수 있도록 업로드
-      - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v4
+            -x "*.git*" \
+            -x "*.github*" \
+            -x "Procfile.watchdog"
+      
+      - name: Deploy to Web Environment
+        uses: einaregilsson/beanstalk-deploy@v21
         with:
-          name: deployment-package
-          path: deploy.zip
-
-  # ----------------------------------------------------
-  # [STEP 2-1] Deploy Worker: 작업자(Worker) 환경에 배포
-  # ----------------------------------------------------
-  deploy-worker-environment:
-    runs-on: ubuntu-latest
-    needs: build # build 작업이 성공해야 실행됨
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: deployment-package
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: fincore_ds
+          environment_name: Fincoreds-env-1 # 웹 환경
+          version_label: ${{ github.sha }}
+          region: ap-northeast-2
+          deployment_package: deploy.zip
 
       - name: Deploy to Worker Environment
         uses: einaregilsson/beanstalk-deploy@v21
@@ -63,25 +48,35 @@ jobs:
           version_label: ${{ github.sha }}
           region: ap-northeast-2
           deployment_package: deploy.zip
-          wait_for_deployment: true
-          wait_for_environment_recovery: 300
 
-  # ----------------------------------------------------
-  # [STEP 2-2] Deploy User: 사용자(Web) 환경에 배포
-  # ----------------------------------------------------
-  deploy-user-environment:
+  # ====================================================================
+  # JOB 2: 왓치독 환경 수동 배포
+  # =================================G===================================
+  deploy-watchdog:
     runs-on: ubuntu-latest
-    needs: deploy-worker-environment # [수정] 작업자 환경 배포가 끝나야 실행되도록 변경
+    # '수동 실행'일 경우에만 이 Job을 실행합니다.
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - name: Deploy to User Environment
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Prepare Procfile for Watchdog
+        run: mv Procfile.watchdog Procfile
+
+      - name: Generate deployment package for Watchdog
+        run: |
+          zip -r deploy.zip . \
+            -x "*.git*" \
+            -x "*.github*" \
+            -x "Procfile.watchdog"
+
+      - name: Deploy to Watchdog Environment
         uses: einaregilsson/beanstalk-deploy@v21
         with:
           aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           application_name: fincore_ds
-          environment_name: Fincoreds-env-1 # 사용자 웹 환경
-          version_label: ${{ github.sha }}
+          environment_name: Fincoreds-env-watchdog-real # 왓치독 환경
+          version_label: "watchdog-${{ github.sha }}"
           region: ap-northeast-2
-          # [수정] 이미 생성된 버전을 사용하므로, 패키지를 다시 업로드하지 않습니다.
-          wait_for_deployment: true
-          wait_for_environment_recovery: 300
+          deployment_package: deploy.zip

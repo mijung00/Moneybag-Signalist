@@ -5,32 +5,24 @@ import secrets
 from pathlib import Path
 
 # -----------------------------------------------------------
-# [1] 사장님 방식대로 환경변수 로더 연결 (dotenv 직접 사용 X)
+# [1] 환경변수 로더 연결
 # -----------------------------------------------------------
 # 현재 파일이 있는 위치(루트)를 기준으로 경로 설정
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
 
-try:
-    # 사장님이 만드신 common 폴더의 로더를 불러옵니다
-    from common.env_loader import load_env
-    load_env(BASE_DIR)
-    print("✅ 환경 변수 로드 시스템 가동 (common.env_loader)")
-except ImportError:
-    # 혹시 경로가 꼬였을 때를 대비한 안전장치
-    print("⚠️ 'common' 폴더를 찾을 수 없습니다. 실행 위치를 확인해주세요.")
-    sys.exit(1)
+from common.config import config
 
 # -----------------------------------------------------------
 # [2] DB 연결 및 기능 정의
 # -----------------------------------------------------------
 def get_db_connection():
     return pymysql.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT", 3306)),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        db=os.getenv("DB_NAME"),
+        host=config.ensure_secret("DB_HOST"),
+        port=int(config.ensure_secret("DB_PORT", "3306")),
+        user=config.ensure_secret("DB_USER"),
+        password=config.ensure_secret("DB_PASSWORD"),
+        db=config.ensure_secret("DB_NAME"),
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
