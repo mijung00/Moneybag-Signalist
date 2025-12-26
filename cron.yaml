@@ -22,10 +22,10 @@ cron:
   #   url: "/worker/moneybag-night"
   #   schedule: "0 12 * * *" # KST 21:00
 
-  - name: "iceage-weekly-report"
-    url: "/worker/iceage-weekly"
-    schedule: "0 23 * * FRI" # KST 08:00 (토)
+  #- name: "iceage-weekly-report"
+  #  url: "/worker/iceage-weekly"
+  #  schedule: "0 23 * * FRI" # KST 08:00 (토)
 
-  - name: "iceage-monthly-report"
-    url: "/worker/iceage-monthly"
-    schedule: "0 0 1 * *" # KST 09:00 (매월 1일)
+  #- name: "iceage-monthly-report"
+  #  url: "/worker/iceage-monthly"
+  #  schedule: "0 0 1 * *" # KST 09:00 (매월 1일)

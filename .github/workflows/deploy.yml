@@ -47,7 +47,6 @@ jobs:
           environment_name: Fincoreds-env-worker-real # 작업자 환경
           version_label: ${{ github.sha }}
           region: ap-northeast-2
-          deployment_package: deploy.zip
 
   # ====================================================================
   # JOB 2: 왓치독 환경 수동 배포
