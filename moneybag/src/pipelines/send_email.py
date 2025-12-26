@@ -1,5 +1,6 @@
 import os
 import markdown
+import time
 import math
 from datetime import datetime
 from pathlib import Path
@@ -275,10 +276,13 @@ class EmailSender:
         sg = SendGridAPIClient(self.api_key)
         batch_size = 1000
         total_batches = math.ceil(len(self.to_emails) / batch_size)
+        total_sent = 0
+        total_failed = 0
 
-        print(f"📧 총 {len(self.to_emails)}명에게 발송 (API Personalization 적용)")
+        print(f"📧 총 {len(self.to_emails)}명에게 '{subject}' 발송 시작... ({total_batches}개 배치)")
 
         for i in range(total_batches):
+            batch_start_time = time.time()
             batch_emails = self.to_emails[i * batch_size : (i + 1) * batch_size]
             message = Mail(from_email=self.from_email, subject=subject, html_content=html_content)
             for email in batch_emails:
@@ -301,12 +305,17 @@ class EmailSender:
             try:
                 response = sg.send(message)
                 if 200 <= response.status_code < 300:
-                    print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공 (Status: {response.status_code})")
+                    total_sent += len(batch_emails)
+                    print(f"✅ [Batch {i+1}/{total_batches}] {len(batch_emails)}명 발송 성공 (소요 시간: {time.time() - batch_start_time:.2f}초, Status: {response.status_code})")
                 else:
+                    total_failed += len(batch_emails)
                     print(f"❌ [Batch {i+1}/{total_batches}] 발송 실패 (Status: {response.status_code})")
                     print(f"   -> SendGrid Body: {response.body}")
             except Exception as e:
-                print(f"❌ [Batch {i+1}] 발송 실패: {e}")
+                total_failed += len(batch_emails)
+                print(f"❌ [Batch {i+1}] API 호출 실패: {e}")
+        
+        print(f"🏁 발송 완료. 성공: {total_sent}, 실패: {total_failed}")
 
     def send(self, file_path, mode="morning"):
         with open(file_path, "r", encoding="utf-8") as f:

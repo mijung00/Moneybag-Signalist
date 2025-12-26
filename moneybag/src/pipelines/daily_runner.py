@@ -1,5 +1,4 @@
 import sys
-import time
 import os
 import re
 from datetime import datetime
@@ -8,6 +7,7 @@ from zoneinfo import ZoneInfo
 now = datetime.now(ZoneInfo("Asia/Seoul"))
 
 
+import time
 
 # 경로 설정
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -51,6 +51,7 @@ def validate_markdown(text):
 
 def run_routine(mode="morning"):
     print(f"\n🏃 [Runner] {mode.upper()} 루틴을 시작합니다...")
+    routine_start_time = time.time()
     
     notifier = SlackNotifier()
     newsletter = DailyNewsletter()
@@ -71,6 +72,7 @@ def run_routine(mode="morning"):
     # ---------------------------------------------------------
     max_retries = 3
     success = False
+    step_start_time = time.time()
     
     for attempt in range(max_retries):
         try:
@@ -92,6 +94,7 @@ def run_routine(mode="morning"):
         except Exception as e:
             print(f"❌ [Error] 생성 중 예외 발생: {e}")
             time.sleep(5)
+    print(f"   -> ⏱️ 소요 시간: {time.time() - step_start_time:.2f}초")
 
     if not success:
         error_msg = f"🚨 [Moneybag 긴급] {mode.upper()} 시크릿 노트 생성 최종 실패!\n3회 재시도했으나 결과물이 불완전합니다."
@@ -103,25 +106,30 @@ def run_routine(mode="morning"):
     # ---------------------------------------------------------
     # 1.5단계: [NEW] 전략 다양성 확보를 위한 페널티 적용
     # ---------------------------------------------------------
+    step_start_time = time.time()
     try:
         print("\n1️⃣-2️⃣ 리포트 후처리 및 전략 다양성 보정 중...")
         # [수정] 원본 전략 리스트를 후처리기에게 전달
         post_processor.run(generated_md_path, all_strategies_from_newsletter)
+        print(f"   -> ⏱️ 소요 시간: {time.time() - step_start_time:.2f}초")
     except Exception as e:
         print(f"⚠️ [Warning] 페널티 적용 실패 (계속 진행): {e}")
 
     # ---------------------------------------------------------
     # 2단계: 카드뉴스 생성
     # ---------------------------------------------------------
+    step_start_time = time.time()
     try:
         print("\n2️⃣ 카드뉴스 생성 중...")
         card_factory.run() # 최신 파일을 자동으로 읽어서 처리
+        print(f"   -> ⏱️ 소요 시간: {time.time() - step_start_time:.2f}초")
     except Exception as e:
         print(f"⚠️ [Warning] 카드뉴스 생성 실패 (계속 진행): {e}")
 
     # ---------------------------------------------------------
     # 2.5단계: 커뮤니티용 요약 이미지 생성
     # ---------------------------------------------------------
+    step_start_time = time.time()
     # [개선] iceage와 동일하게 환경변수로 제어할 수 있도록 기능 추가
     run_summary_image_output = os.getenv("RUN_SUMMARY_IMAGE_OUTPUT", "1") == "1"
     if run_summary_image_output:
@@ -129,6 +137,7 @@ def run_routine(mode="morning"):
             print("\n2️⃣-2️⃣ 커뮤니티용 요약 이미지 생성 중...")
             summary_image_generator = SummaryImageGenerator(mode=mode)
             summary_image_generator.run()
+            print(f"   -> ⏱️ 소요 시간: {time.time() - step_start_time:.2f}초")
         except Exception as e:
             print(f"⚠️ [Warning] 요약 이미지 생성 실패 (계속 진행): {e}")
     else:
@@ -137,6 +146,7 @@ def run_routine(mode="morning"):
     # ---------------------------------------------------------
     # 3단계: 이메일 발송 (경로 전달 필수!)
     # ---------------------------------------------------------
+    step_start_time = time.time()
     try:
         print(f"\n3️⃣ 이메일 발송 중... (타겟: {generated_md_path.name})")
         
@@ -144,6 +154,7 @@ def run_routine(mode="morning"):
         if not generated_md_path or not generated_md_path.exists():
             raise FileNotFoundError(f"발송할 뉴스레터 파일을 찾을 수 없습니다: {generated_md_path}")
         email_sender.send(str(generated_md_path), mode=mode)
+        print(f"   -> ⏱️ 소요 시간: {time.time() - step_start_time:.2f}초")
         
         print(f"✅ [Moneybag] **{mode.upper()}** 시크릿 노트 발송 완료! 📧")
         
@@ -161,6 +172,7 @@ def run_routine(mode="morning"):
     # ---------------------------------------------------------
     # 4단계: S3 데이터 백업 (퇴근)
     # ---------------------------------------------------------
+    step_start_time = time.time()
     if S3Manager:
         try:
             print("\n☁️ [S3 Sync] 머니백 데이터 및 결과물 전체 백업 중...")
@@ -176,12 +188,13 @@ def run_routine(mode="morning"):
             data_dir = moneybag_root / "data"
             if data_dir.exists():
                 s3.upload_directory(str(data_dir), "moneybag/data", recent_days=BACKUP_DAYS)
+            print(f"   -> ⏱️ 소요 시간: {time.time() - step_start_time:.2f}초")
             
                 
         except Exception as e:
             print(f"⚠️ [S3 Error] 백업 중 오류 발생: {e}")
 
-    print(f"\n🏃 [Runner] {mode.upper()} 루틴 정상 종료!")
+    print(f"\n🏃 [Runner] {mode.upper()} 루틴 정상 종료! (총 소요 시간: {time.time() - routine_start_time:.2f}초)")
 
 
 def main(mode="morning", *args, **kwargs):
