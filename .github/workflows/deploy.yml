@@ -59,12 +59,12 @@ jobs:
           aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           application_name: fincore_ds
-        environment_name: Fincoreds-env-worker-real # 작업자 환경
-        version_label: ${{ github.sha }}
-        region: ap-northeast-2
-        deployment_package: deploy.zip
-        wait_for_deployment: true
-        wait_for_environment_recovery: 300
+          environment_name: Fincoreds-env-worker-real # 작업자 환경
+          version_label: ${{ github.sha }}
+          region: ap-northeast-2
+          deployment_package: deploy.zip
+          wait_for_deployment: true
+          wait_for_environment_recovery: 300
 
   # ----------------------------------------------------
   # [STEP 2-2] Deploy User: 사용자(Web) 환경에 배포
