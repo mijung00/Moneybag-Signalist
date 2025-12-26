@@ -19,7 +19,7 @@ def run_iceage_task(arg=None):
     
     # 셸 스크립트 대신, 직접 파이썬 모듈의 main 함수를 호출합니다.
     logging.info(f"Starting IceAge task with arg: {arg}")
-    return iceage_runner.main(arg) if hasattr(iceage_runner, 'main') else "Module Error: iceage_runner.main not found"
+    return iceage_runner.main() if hasattr(iceage_runner, 'main') else "Module Error: iceage_runner.main not found"
 
 def run_moneybag_task(mode="morning"):
     """run_moneybag.sh를 대체하는 파이썬 함수"""

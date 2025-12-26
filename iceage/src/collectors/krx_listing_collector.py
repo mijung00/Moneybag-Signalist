@@ -15,6 +15,18 @@ import requests
 # [수정] 이제 모든 환경 변수와 시크릿은 config 객체를 통해 안전하게 접근합니다.
 from common.config import config
 
+# --- 경로 설정 ---
+# 이 파일의 위치(iceage/src/collectors)를 기준으로 프로젝트 루트('iceage')를 찾습니다.
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+except IndexError:
+    # 스크립트가 다른 위치에서 실행될 경우를 대비한 예외 처리
+    PROJECT_ROOT = Path.cwd()
+
+# 상장 목록은 data/reference 폴더에 저장합니다.
+DATA_DIR = PROJECT_ROOT / "data" / "reference"
+# --- 경로 설정 끝 ---
+
 
 def _get_krx_key():
     return os.getenv("KRX_AUTH_KEY") or os.getenv("KRX_AUTH_KEY".replace("AUTH_", ""))  # 필요시만

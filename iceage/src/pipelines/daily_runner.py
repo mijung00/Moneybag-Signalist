@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import shutil
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -221,14 +222,35 @@ def main() -> None:
     # -----------------------
     if not skip_collection:
         # 1) 상장법인 목록 수집 (KRX OPEN API 사용)
-        _run(
-            [
-                "python",
-                "-m",
-                "iceage.src.collectors.krx_listing_collector",
-                ref_str,
-            ]
-        )
+        try:
+            run_step(
+                "상장법인 목록 수집 (KRX API)",
+                [
+                    "python",
+                    "-m",
+                    "iceage.src.collectors.krx_listing_collector",
+                    ref_str,
+                ],
+                critical=True,  # 실패 시 예외를 발생시켜 폴백 로직으로 넘어가도록 함
+            )
+        except Exception as e:
+            print(f"[WARN] KRX 상장 목록 수집 실패, 전일 데이터 복사로 폴백합니다: {e}")
+            try:
+                print("\n[STEP] 상장법인 목록 수집 (폴백: 전일 데이터 복사)")
+                listing_files = sorted(DATA_REF.glob("kr_listing_*.csv"), reverse=True)
+                if not listing_files:
+                    raise FileNotFoundError("폴백할 과거 상장 목록 파일이 없습니다.")
+                
+                latest_listing_file = listing_files[0]
+                fallback_target_path = DATA_REF / f"kr_listing_{ref_str}.csv"
+                shutil.copy2(latest_listing_file, fallback_target_path)
+                print(f"[OK] 상장법인 목록 수집 (폴백: 전일 데이터 복사)")
+                print(f"   - 복사 완료: {latest_listing_file.name} -> {fallback_target_path.name}")
+            except Exception as fallback_e:
+                msg = f"[ERROR] 상장 목록 폴백 실패: {fallback_e}"
+                print(msg)
+                ERRORS.append(msg)
+                raise  # 폴백마저 실패하면 파이프라인 중단
 
         # 1-1) KRX 지수(코스피/코스닥) 수집
         run_step(
